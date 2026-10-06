@@ -1,6 +1,6 @@
 /* =====================================================================
    النظام المحاسبي المتكامل - app.js
-   النسخة النهائية الكاملة
+   النسخة النهائية الكاملة - مع إصلاح قراءة الحقول قبل العمليات async
    ===================================================================== */
 
 /* ===================== Utilities ===================== */
@@ -10,6 +10,20 @@ const fmt = n => (Number(n)||0).toLocaleString('ar-EG',{minimumFractionDigits:2,
 const esc = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const today = () => new Date().toISOString().slice(0,10);
 const monthNow = () => new Date().toISOString().slice(0,7);
+
+// ✅ قراءة آمنة للحقول الرقمية (قبل أي عملية async)
+const readNum = (sel, fallback = 0) => {
+  const el = document.querySelector(sel);
+  if (!el) return fallback;
+  const v = parseFloat(el.value);
+  return isNaN(v) ? fallback : v;
+};
+
+// ✅ قراءة آمنة للحقول النصية
+const readStr = (sel, fallback = '') => {
+  const el = document.querySelector(sel);
+  return el ? (el.value || '').trim() : fallback;
+};
 
 /* ===================== State ===================== */
 const state = {
@@ -404,13 +418,32 @@ function recalcSale() {
   if ($('#saleRemaining')) $('#saleRemaining').textContent = fmt(rem);
 }
 
+/* ===================================================================
+   ✅ saveSale - تم الإصلاح: قراءة كل القيم قبل أي عملية async
+   =================================================================== */
 async function saveSale() {
-  const customerName = $('#saleCustomer').value.trim();
+  // ✅ اقرأ كل القيم أولاً قبل أي عملية async
+  const customerName = readStr('#saleCustomer');
+  const date = readStr('#saleDate');
+  const type = readStr('#saleType', 'cash');
+  const disc = readNum('#saleDiscount');
+  const tax = readNum('#saleTax');
+  const paid = readNum('#salePaid');
+  const notes = readStr('#saleNotes');
+
   if (!customerName) { alert('اكتب اسم العميل'); return; }
 
   const validItems = tempSaleItems.filter(i => i.itemId && i.qty > 0);
   if (!validItems.length) { alert('أضف صنفاً واحداً على الأقل'); return; }
 
+  // الحسابات
+  const sub = validItems.reduce((s,i)=>s+i.total,0);
+  const total = sub - disc + tax;
+  const remaining = total - paid;
+
+  console.log('💰 حفظ فاتورة بيع:', { sub, disc, tax, total, paid, remaining });
+
+  // 1) البحث عن عميل أو إنشاؤه
   let customer = state.data.customers.find(c => c.name.trim() === customerName);
   let customerId = customer?.id;
   if (!customer) {
@@ -421,22 +454,17 @@ async function saveSale() {
     customerId = ref.id;
   }
 
-  const sub = validItems.reduce((s,i)=>s+i.total,0);
-  const disc = Number($('#saleDiscount').value)||0;
-  const tax = Number($('#saleTax').value)||0;
-  const total = sub - disc + tax;
-  const paid = Number($('#salePaid').value)||0;
-  const type = $('#saleType').value;
-
+  // 2) حفظ الفاتورة
   const number = await nextNumber('sales', 'S');
   await userCol('sales').add({
-    number, date: $('#saleDate').value, type,
+    number, date, type,
     customerId, customerName,
     items: validItems, subtotal: sub, discount: disc, tax, total, paid,
-    remaining: total - paid, notes: $('#saleNotes').value || '',
-    createdAt: Date.now()
+    remaining: remaining,
+    notes, createdAt: Date.now()
   });
 
+  // 3) خصم المخزون
   const batch = db.batch();
   validItems.forEach(it => {
     batch.update(userCol('items').doc(it.itemId), {
@@ -645,13 +673,30 @@ function recalcPurchase() {
   if ($('#pRemaining')) $('#pRemaining').textContent = fmt(total - paid);
 }
 
+/* ===================================================================
+   ✅ savePurchase - تم الإصلاح: قراءة كل القيم قبل أي عملية async
+   =================================================================== */
 async function savePurchase() {
-  const supplierName = $('#pSupplier').value.trim();
+  // ✅ اقرأ كل القيم أولاً قبل أي عملية async
+  const supplierName = readStr('#pSupplier');
+  const date = readStr('#pDate');
+  const disc = readNum('#pDiscount');
+  const tax = readNum('#pTax');
+  const paid = readNum('#pPaid');
+  const notes = readStr('#pNotes');
+
   if (!supplierName) { alert('اكتب اسم المورد'); return; }
 
   const validItems = tempPurchaseItems.filter(i => i.itemName && i.qty > 0);
   if (!validItems.length) { alert('أضف صنفاً واحداً على الأقل'); return; }
 
+  const sub = validItems.reduce((s,i)=>s+i.total,0);
+  const total = sub - disc + tax;
+  const remaining = total - paid;
+
+  console.log('💰 حفظ فاتورة شراء:', { sub, disc, tax, total, paid, remaining });
+
+  // 1) البحث عن مورد أو إنشاؤه
   let supplier = state.data.customers.find(c => c.name.trim() === supplierName);
   let supplierId = supplier?.id;
   if (!supplier) {
@@ -662,6 +707,7 @@ async function savePurchase() {
     supplierId = ref.id;
   }
 
+  // 2) معالجة الأصناف
   const finalItems = [];
   const inventoryUpdates = [];
   for (const it of validItems) {
@@ -681,21 +727,17 @@ async function savePurchase() {
     inventoryUpdates.push({ itemId, qty: it.qty, cost: it.price });
   }
 
-  const sub = finalItems.reduce((s,i)=>s+i.total,0);
-  const disc = Number($('#pDiscount').value)||0;
-  const tax = Number($('#pTax').value)||0;
-  const total = sub - disc + tax;
-  const paid = Number($('#pPaid').value)||0;
-
+  // 3) حفظ الفاتورة
   const number = await nextNumber('purchases', 'P');
   await userCol('purchases').add({
-    number, date: $('#pDate').value,
+    number, date,
     supplierId, supplierName,
     items: finalItems, subtotal: sub, discount: disc, tax, total, paid,
-    remaining: total - paid, notes: $('#pNotes').value || '',
-    createdAt: Date.now()
+    remaining: remaining,
+    notes, createdAt: Date.now()
   });
 
+  // 4) تحديث المخزون
   const batch = db.batch();
   inventoryUpdates.forEach(u => {
     batch.update(userCol('items').doc(u.itemId), {
@@ -916,12 +958,15 @@ function openCustomerForm(id) {
 }
 
 async function saveCustomer(id) {
-  const name = $('#cuName').value.trim();
+  const name = readStr('#cuName');
   if (!name) { alert('الاسم مطلوب'); return; }
   const data = {
-    name, phone: $('#cuPhone').value, address: $('#cuAddress').value,
-    openingBalance: Number($('#cuOpening').value) || 0,
-    notes: $('#cuNotes').value, updatedAt: Date.now()
+    name,
+    phone: readStr('#cuPhone'),
+    address: readStr('#cuAddress'),
+    openingBalance: readNum('#cuOpening'),
+    notes: readStr('#cuNotes'),
+    updatedAt: Date.now()
   };
   if (id) await userCol('customers').doc(id).update(data);
   else await userCol('customers').add({ ...data, createdAt: Date.now() });
@@ -1016,19 +1061,22 @@ function openItemForm(id) {
 }
 
 async function saveItem(id) {
-  const name = $('#itName').value.trim();
+  const name = readStr('#itName');
   if (!name) { alert('الاسم مطلوب'); return; }
   const data = {
-    code: $('#itCode').value, name, unit: $('#itUnit').value,
-    cost: Number($('#itCost').value) || 0,
-    price: Number($('#itPrice').value) || 0,
-    minQuantity: Number($('#itMin').value) || 0,
-    notes: $('#itNotes').value, updatedAt: Date.now()
+    code: readStr('#itCode'),
+    name,
+    unit: readStr('#itUnit'),
+    cost: readNum('#itCost'),
+    price: readNum('#itPrice'),
+    minQuantity: readNum('#itMin'),
+    notes: readStr('#itNotes'),
+    updatedAt: Date.now()
   };
   if (id) {
     await userCol('items').doc(id).update(data);
   } else {
-    data.quantity = Number($('#itQty').value) || 0;
+    data.quantity = readNum('#itQty');
     data.createdAt = Date.now();
     await userCol('items').add(data);
   }
@@ -1120,14 +1168,17 @@ function openEmployeeForm(id) {
 }
 
 async function saveEmployee(id) {
-  const name = $('#emName').value.trim();
+  const name = readStr('#emName');
   if (!name) { alert('الاسم مطلوب'); return; }
   const data = {
-    name, position: $('#emPos').value, phone: $('#emPhone').value,
-    hireDate: $('#emHire').value,
-    basicSalary: Number($('#emBasic').value) || 0,
-    allowances: Number($('#emAllow').value) || 0,
-    notes: $('#emNotes').value, updatedAt: Date.now()
+    name,
+    position: readStr('#emPos'),
+    phone: readStr('#emPhone'),
+    hireDate: readStr('#emHire'),
+    basicSalary: readNum('#emBasic'),
+    allowances: readNum('#emAllow'),
+    notes: readStr('#emNotes'),
+    updatedAt: Date.now()
   };
   if (id) await userCol('employees').doc(id).update(data);
   else await userCol('employees').add({ ...data, createdAt: Date.now() });
@@ -1231,14 +1282,16 @@ function openAdvanceForm() {
 }
 
 async function saveAdvance() {
-  const empId = $('#advEmp').value;
+  const empId = readStr('#advEmp');
+  const date = readStr('#advDate');
+  const amount = readNum('#advAmount');
+  const notes = readStr('#advNotes');
   const emp = state.data.employees.find(e => e.id === empId);
-  const amount = Number($('#advAmount').value) || 0;
   if (amount <= 0) { alert('أدخل مبلغاً صحيحاً'); return; }
   const number = await nextNumber('advances', 'ADV');
   await userCol('advances').add({
-    number, date: $('#advDate').value, employeeId: empId, employeeName: emp?.name || '',
-    amount, notes: $('#advNotes').value || '', createdAt: Date.now()
+    number, date, employeeId: empId, employeeName: emp?.name || '',
+    amount, notes, createdAt: Date.now()
   });
   closeModal();
 }
@@ -1331,13 +1384,16 @@ function openSalaryForm(empId, month) {
 
 async function saveSalary(empId) {
   const emp = state.data.employees.find(e => e.id === empId);
-  const amount = Number($('#salAmount').value) || 0;
+  const amount = readNum('#salAmount');
+  const date = readStr('#salDate');
+  const month = readStr('#salMonth');
+  const notes = readStr('#salNotes');
   if (amount <= 0) { alert('أدخل مبلغاً صحيحاً'); return; }
   const number = await nextNumber('salaries', 'SAL');
   await userCol('salaries').add({
-    number, date: $('#salDate').value, month: $('#salMonth').value,
+    number, date, month,
     employeeId: empId, employeeName: emp?.name || '',
-    net: amount, notes: $('#salNotes').value || '', createdAt: Date.now()
+    net: amount, notes, createdAt: Date.now()
   });
   closeModal();
 }
@@ -1448,8 +1504,11 @@ function openReceiptForm() {
 }
 
 async function saveReceipt() {
-  const name = $('#rCust').value.trim();
-  const amount = Number($('#rAmount').value) || 0;
+  const name = readStr('#rCust');
+  const amount = readNum('#rAmount');
+  const date = readStr('#rDate');
+  const method = readStr('#rMethod');
+  const notes = readStr('#rNotes');
   if (!name || amount <= 0) { alert('أدخل بيانات صحيحة'); return; }
 
   let customer = state.data.customers.find(c => c.name.trim() === name);
@@ -1463,8 +1522,8 @@ async function saveReceipt() {
 
   const number = await nextNumber('receipts', 'RC');
   await userCol('receipts').add({
-    number, date: $('#rDate').value, customerId, customerName: name,
-    amount, method: $('#rMethod').value, notes: $('#rNotes').value || '', createdAt: Date.now()
+    number, date, customerId, customerName: name,
+    amount, method, notes, createdAt: Date.now()
   });
   closeModal();
 }
@@ -1575,8 +1634,11 @@ function openPaymentForm() {
 }
 
 async function savePayment() {
-  const name = $('#payBen').value.trim();
-  const amount = Number($('#payAmount').value) || 0;
+  const name = readStr('#payBen');
+  const amount = readNum('#payAmount');
+  const date = readStr('#payDate');
+  const method = readStr('#payMethod');
+  const notes = readStr('#payNotes');
   if (!name || amount <= 0) { alert('أدخل بيانات صحيحة'); return; }
 
   let party = state.data.customers.find(c => c.name.trim() === name);
@@ -1590,9 +1652,9 @@ async function savePayment() {
 
   const number = await nextNumber('payments', 'PV');
   await userCol('payments').add({
-    number, date: $('#payDate').value,
+    number, date,
     partyId, beneficiary: name, amount,
-    method: $('#payMethod').value, notes: $('#payNotes').value || '',
+    method, notes,
     createdAt: Date.now()
   });
   closeModal();
@@ -1798,11 +1860,11 @@ function renderSettings(c) {
 
 async function saveSettings() {
   const data = {
-    businessName: $('#setName').value.trim(),
-    address: $('#setAddress').value.trim(),
-    phone1: $('#setPhone1').value.trim(),
-    phone2: $('#setPhone2').value.trim(),
-    footer: $('#setFooter').value.trim(),
+    businessName: readStr('#setName'),
+    address: readStr('#setAddress'),
+    phone1: readStr('#setPhone1'),
+    phone2: readStr('#setPhone2'),
+    footer: readStr('#setFooter'),
     logo: state.settings.logo || '',
     updatedAt: Date.now()
   };
