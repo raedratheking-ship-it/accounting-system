@@ -1,7 +1,9 @@
 /* =====================================================================
    النظام المحاسبي المتكامل - app.js
-   النسخة النهائية - مع الحفظ اللحظي لحقول الخصم/الضريبة/المدفوع
+   VERSION 3 - إصلاح قراءة حقول الخصم/الضريبة/المدفوع
    ===================================================================== */
+
+console.log('✅ app.js VERSION 3 loaded — ' + new Date().toISOString());
 
 /* ===================== Utilities ===================== */
 const $ = s => document.querySelector(s);
@@ -11,28 +13,46 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;',
 const today = () => new Date().toISOString().slice(0,10);
 const monthNow = () => new Date().toISOString().slice(0,7);
 
-// قراءة آمنة للحقول
+/* ✅ تحويل الأرقام العربية إلى لاتينية */
+function toLatinDigits(str) {
+  return String(str || '')
+    .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+    .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+    .replace(/[،,]/g, '.');
+}
+
+/* ✅ قراءة رقم بأي صيغة */
+function parseNum(str, fallback = 0) {
+  const latin = toLatinDigits(str);
+  const n = parseFloat(latin);
+  return isNaN(n) ? fallback : n;
+}
+
+/* ✅ قراءة مباشرة وآمنة من DOM */
 const readNum = (sel, fallback = 0) => {
   const el = document.querySelector(sel);
   if (!el) return fallback;
-  const v = parseFloat(el.value);
-  return isNaN(v) ? fallback : v;
+  return parseNum(el.value, fallback);
 };
 const readStr = (sel, fallback = '') => {
   const el = document.querySelector(sel);
   return el ? (el.value || '').trim() : fallback;
 };
 
-/* ============ ✅ حفظ لحظي لقيم حقول الفواتير ============ */
+/* ============ ✅ حفظ لحظي (احتياطي) ============ */
 let purchaseForm = { disc: 0, tax: 0, paid: 0 };
 let saleForm = { disc: 0, tax: 0, paid: 0 };
 
 function onPurchaseField(field, value) {
-  purchaseForm[field] = parseFloat(value) || 0;
+  const v = parseNum(value, 0);
+  purchaseForm[field] = v;
+  console.log('[PURCHASE] ' + field + ' =', v, '(raw:', JSON.stringify(value) + ')');
   recalcPurchase();
 }
 function onSaleField(field, value) {
-  saleForm[field] = parseFloat(value) || 0;
+  const v = parseNum(value, 0);
+  saleForm[field] = v;
+  console.log('[SALE] ' + field + ' =', v, '(raw:', JSON.stringify(value) + ')');
   recalcSale();
 }
 
@@ -60,7 +80,7 @@ const COLLECTIONS = ['customers','employees','items','sales','purchases','receip
 
 /* ===================== Auth ===================== */
 $('#googleLogin').addEventListener('click', async () => {
-  const provider = new firebase.auth.GoogleAuthProvider();
+  const provider = firebase.auth.GoogleAuthProvider();
   try {
     await auth.signInWithPopup(provider);
   } catch (e) {
@@ -227,7 +247,6 @@ function printHeaderHtml(docTitle) {
     <div class="print-doc-title">${esc(docTitle)}</div>
   `;
 }
-
 function printFooterHtml() {
   const s = state.settings;
   if (!s.footer) return '';
@@ -325,7 +344,7 @@ let tempSaleItems = [];
 
 function openSaleForm() {
   tempSaleItems = [];
-  saleForm = { disc: 0, tax: 0, paid: 0 };  // ✅ تصفير
+  saleForm = { disc: 0, tax: 0, paid: 0 };
   const items = state.data.items;
 
   openModal('فاتورة بيع جديدة', `
@@ -350,11 +369,11 @@ function openSaleForm() {
     </div>
     <div class="form-row-3">
       <div class="form-group"><label>الخصم</label>
-        <input type="number" id="saleDiscount" value="0" min="0" step="0.01" oninput="onSaleField('disc', this.value)"></div>
+        <input type="text" inputmode="decimal" id="saleDiscount" value="0" oninput="onSaleField('disc', this.value)"></div>
       <div class="form-group"><label>الضريبة</label>
-        <input type="number" id="saleTax" value="0" min="0" step="0.01" oninput="onSaleField('tax', this.value)"></div>
+        <input type="text" inputmode="decimal" id="saleTax" value="0" oninput="onSaleField('tax', this.value)"></div>
       <div class="form-group"><label>المدفوع</label>
-        <input type="number" id="salePaid" value="0" min="0" step="0.01" oninput="onSaleField('paid', this.value)"></div>
+        <input type="text" inputmode="decimal" id="salePaid" value="0" oninput="onSaleField('paid', this.value)"></div>
     </div>
     <div class="form-group"><label>ملاحظات</label><textarea id="saleNotes" rows="2"></textarea></div>
     <div class="totals-box">
@@ -410,7 +429,6 @@ function updateSaleItem(i, field, val) {
 }
 function removeSaleItem(i) { tempSaleItems.splice(i,1); renderSaleItemRows(); }
 
-// ✅ recalcSale يقرأ من saleForm
 function recalcSale() {
   const sub = tempSaleItems.reduce((s,i)=>s+i.total,0);
   const total = sub - saleForm.disc + saleForm.tax;
@@ -422,17 +440,22 @@ function recalcSale() {
   if ($('#saleRemaining')) $('#saleRemaining').textContent = fmt(rem);
 }
 
-// ✅ saveSale يقرأ من saleForm
 async function saveSale() {
+  // ✅ اقرأ من DOM مباشرة (الأحدث) مع الـ state كاحتياطي
+  const pPaidEl = document.getElementById('salePaid');
+  const pDiscEl = document.getElementById('saleDiscount');
+  const pTaxEl = document.getElementById('saleTax');
+
+  const paid = pPaidEl ? parseNum(pPaidEl.value) : saleForm.paid;
+  const disc = pDiscEl ? parseNum(pDiscEl.value) : saleForm.disc;
+  const tax = pTaxEl ? parseNum(pTaxEl.value) : saleForm.tax;
+
   const customerName = readStr('#saleCustomer');
   const date = readStr('#saleDate');
   const type = readStr('#saleType', 'cash');
   const notes = readStr('#saleNotes');
-  const disc = saleForm.disc;
-  const tax = saleForm.tax;
-  const paid = saleForm.paid;
 
-  console.log('🔍 قيم البيع المقروءة:', { disc, tax, paid });
+  console.log('🔍 [SALE] DOM read:', { paid, disc, tax, domPaid: pPaidEl?.value, stateFallback: {...saleForm} });
 
   if (!customerName) { alert('اكتب اسم العميل'); return; }
 
@@ -443,9 +466,8 @@ async function saveSale() {
   const total = sub - disc + tax;
   const remaining = total - paid;
 
-  console.log('💰 حفظ فاتورة بيع:', { sub, disc, tax, total, paid, remaining });
+  console.log('💰 [SALE] FINAL:', { sub, disc, tax, total, paid, remaining });
 
-  // 1) البحث عن عميل أو إنشاؤه
   let customer = state.data.customers.find(c => c.name.trim() === customerName);
   let customerId = customer?.id;
   if (!customer) {
@@ -456,7 +478,6 @@ async function saveSale() {
     customerId = ref.id;
   }
 
-  // 2) حفظ الفاتورة
   const number = await nextNumber('sales', 'S');
   await userCol('sales').add({
     number, date, type,
@@ -466,7 +487,6 @@ async function saveSale() {
     notes, createdAt: Date.now()
   });
 
-  // 3) خصم المخزون
   const batch = db.batch();
   validItems.forEach(it => {
     batch.update(userCol('items').doc(it.itemId), {
@@ -585,7 +605,7 @@ let tempPurchaseItems = [];
 
 function openPurchaseForm() {
   tempPurchaseItems = [];
-  purchaseForm = { disc: 0, tax: 0, paid: 0 };  // ✅ تصفير
+  purchaseForm = { disc: 0, tax: 0, paid: 0 };
   openModal('فاتورة شراء جديدة', `
     <div class="form-row">
       <div class="form-group"><label>التاريخ</label><input type="date" id="pDate" value="${today()}"></div>
@@ -603,11 +623,11 @@ function openPurchaseForm() {
     </div>
     <div class="form-row-3">
       <div class="form-group"><label>الخصم</label>
-        <input type="number" id="pDiscount" value="0" oninput="onPurchaseField('disc', this.value)"></div>
+        <input type="text" inputmode="decimal" id="pDiscount" value="0" oninput="onPurchaseField('disc', this.value)"></div>
       <div class="form-group"><label>الضريبة</label>
-        <input type="number" id="pTax" value="0" oninput="onPurchaseField('tax', this.value)"></div>
+        <input type="text" inputmode="decimal" id="pTax" value="0" oninput="onPurchaseField('tax', this.value)"></div>
       <div class="form-group"><label>المدفوع</label>
-        <input type="number" id="pPaid" value="0" oninput="onPurchaseField('paid', this.value)"></div>
+        <input type="text" inputmode="decimal" id="pPaid" value="0" oninput="onPurchaseField('paid', this.value)"></div>
     </div>
     <div class="form-group"><label>ملاحظات</label><textarea id="pNotes" rows="2"></textarea></div>
     <div class="totals-box">
@@ -668,7 +688,6 @@ function updatePurchaseItem(i, field, val) {
 
 function removePurchaseItem(i) { tempPurchaseItems.splice(i,1); renderPurchaseItemRows(); }
 
-// ✅ recalcPurchase يقرأ من purchaseForm
 function recalcPurchase() {
   const sub = tempPurchaseItems.reduce((s,i)=>s+i.total,0);
   const total = sub - purchaseForm.disc + purchaseForm.tax;
@@ -677,16 +696,21 @@ function recalcPurchase() {
   if ($('#pRemaining')) $('#pRemaining').textContent = fmt(total - purchaseForm.paid);
 }
 
-// ✅ savePurchase يقرأ من purchaseForm
 async function savePurchase() {
+  // ✅ اقرأ من DOM مباشرة (الأحدث)
+  const pPaidEl = document.getElementById('pPaid');
+  const pDiscEl = document.getElementById('pDiscount');
+  const pTaxEl = document.getElementById('pTax');
+
+  const paid = pPaidEl ? parseNum(pPaidEl.value) : purchaseForm.paid;
+  const disc = pDiscEl ? parseNum(pDiscEl.value) : purchaseForm.disc;
+  const tax = pTaxEl ? parseNum(pTaxEl.value) : purchaseForm.tax;
+
   const supplierName = readStr('#pSupplier');
   const date = readStr('#pDate');
   const notes = readStr('#pNotes');
-  const disc = purchaseForm.disc;
-  const tax = purchaseForm.tax;
-  const paid = purchaseForm.paid;
 
-  console.log('🔍 قيم الشراء المقروءة:', { disc, tax, paid });
+  console.log('🔍 [PURCHASE] DOM read:', { paid, disc, tax, domPaid: pPaidEl?.value, stateFallback: {...purchaseForm} });
 
   if (!supplierName) { alert('اكتب اسم المورد'); return; }
 
@@ -697,9 +721,8 @@ async function savePurchase() {
   const total = sub - disc + tax;
   const remaining = total - paid;
 
-  console.log('💰 حفظ فاتورة شراء:', { sub, disc, tax, total, paid, remaining });
+  console.log('💰 [PURCHASE] FINAL:', { sub, disc, tax, total, paid, remaining });
 
-  // 1) البحث عن مورد أو إنشاؤه
   let supplier = state.data.customers.find(c => c.name.trim() === supplierName);
   let supplierId = supplier?.id;
   if (!supplier) {
@@ -710,7 +733,6 @@ async function savePurchase() {
     supplierId = ref.id;
   }
 
-  // 2) معالجة الأصناف
   const finalItems = [];
   const inventoryUpdates = [];
   for (const it of validItems) {
@@ -730,7 +752,6 @@ async function savePurchase() {
     inventoryUpdates.push({ itemId, qty: it.qty, cost: it.price });
   }
 
-  // 3) حفظ الفاتورة
   const number = await nextNumber('purchases', 'P');
   await userCol('purchases').add({
     number, date,
@@ -740,7 +761,6 @@ async function savePurchase() {
     notes, createdAt: Date.now()
   });
 
-  // 4) تحديث المخزون
   const batch = db.batch();
   inventoryUpdates.forEach(u => {
     batch.update(userCol('items').doc(u.itemId), {
