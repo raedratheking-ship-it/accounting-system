@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>النظام المحاسبي المتكامل</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ===== شاشة تسجيل الدخول ===== -->
+<div id="loginScreen" class="login-screen">
+  <div class="login-card">
+    <div class="logo-circle">💰</div>
+    <h1>النظام المحاسبي المتكامل</h1>
+    <p class="sub">سجّل الدخول باستخدام حساب Google للوصول إلى حسابك المستقل</p>
+    <button id="googleLogin" class="btn-google">
+      <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.3 0-9.7-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.1 5.6l6.2 5.2C41.9 35.6 44 30.2 44 24c0-1.2-.1-2.4-.4-3.5z"/></svg>
+      تسجيل الدخول بواسطة Google
+    </button>
+    <p id="loginError" class="error-msg"></p>
+  </div>
+</div>
+
+<!-- ===== التطبيق ===== -->
+<div id="app" class="app hidden">
+  <aside id="sidebar" class="sidebar">
+    <div class="brand"><span>💰</span> المحاسبة</div>
+    <nav class="nav">
+      <a data-section="dashboard" class="active"><span>📊</span> لوحة التحكم</a>
+      <a data-section="sales"><span>🧾</span> فواتير البيع</a>
+      <a data-section="purchases"><span>📥</span> فواتير الشراء</a>
+      <a data-section="customers"><span>👥</span> العملاء</a>
+      <a data-section="items"><span>📦</span> الأصناف والمخزون</a>
+      <a data-section="employees"><span>👨‍💼</span> الموظفون</a>
+      <a data-section="advances"><span>💵</span> سلف الموظفين</a>
+      <a data-section="salaries"><span>💼</span> الرواتب</a>
+      <a data-section="receipts"><span>📨</span> سند قبض</a>
+      <a data-section="payments"><span>📤</span> سند صرف</a>
+      <a data-section="reports"><span>📈</span> التقارير</a>
+    </nav>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <button id="menuToggle" class="menu-toggle">☰</button>
+      <h2 id="sectionTitle">لوحة التحكم</h2>
+      <div class="user-info">
+        <img id="userPhoto" alt="" referrerpolicy="no-referrer">
+        <span id="userName"></span>
+        <button id="logoutBtn" class="btn-logout">خروج</button>
+      </div>
+    </header>
+    <div id="content" class="content"></div>
+  </div>
+</div>
+
+<!-- ===== Modal ===== -->
+<div id="modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="modalTitle"></h3>
+      <button id="modalClose" class="close-btn">×</button>
+    </div>
+    <div id="modalBody" class="modal-body"></div>
+  </div>
+</div>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
