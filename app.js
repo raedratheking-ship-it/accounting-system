@@ -101,7 +101,7 @@ function showSection(name) {
   $$('.nav a').forEach(a => a.classList.toggle('active', a.dataset.section === name));
   const titles = {
     dashboard:'لوحة التحكم', sales:'فواتير البيع', purchases:'فواتير الشراء',
-    customers:'العملاء', items:'الأصناف والمخزون', employees:'الموظفون',
+    customers:'العملاء والموردون', items:'الأصناف والمخزون', employees:'الموظفون',
     advances:'سلف الموظفين', salaries:'الرواتب', receipts:'سندات القبض',
     payments:'سندات الصرف', reports:'التقارير'
   };
@@ -126,11 +126,28 @@ function customerBalance(id) {
   const c = state.data.customers.find(x => x.id === id);
   if (!c) return 0;
   const opening = Number(c.openingBalance) || 0;
-  const salesRem = state.data.sales.filter(s => s.customerId === id)
+
+  // مبيعات آجل متبقية (له علينا = مدين لنا +)
+  const salesRemaining = state.data.sales
+    .filter(s => s.customerId === id)
     .reduce((s, x) => s + (Number(x.remaining) || 0), 0);
-  const receipts = state.data.receipts.filter(r => r.customerId === id)
+
+  // سندات قبض (دفع لنا -)
+  const receipts = state.data.receipts
+    .filter(r => r.customerId === id)
     .reduce((s, x) => s + (Number(x.amount) || 0), 0);
-  return opening + salesRem - receipts;
+
+  // مشتريات آجل متبقية (اشترينا منهم -)
+  const purchasesRemaining = state.data.purchases
+    .filter(p => p.supplierId === id)
+    .reduce((s, x) => s + (Number(x.remaining) || 0), 0);
+
+  // سندات صرف (دفعنا لهم +)
+  const payments = state.data.payments
+    .filter(p => p.partyId === id)
+    .reduce((s, x) => s + (Number(x.amount) || 0), 0);
+
+  return opening + salesRemaining - receipts - purchasesRemaining + payments;
 }
 
 function employeeMonthData(empId, month) {
@@ -165,7 +182,14 @@ function renderDashboard(c) {
   const purchases = state.data.purchases;
   const totalSales = sales.reduce((s, x) => s + (Number(x.total) || 0), 0);
   const totalPurchases = purchases.reduce((s, x) => s + (Number(x.total) || 0), 0);
-  const totalDebts = state.data.customers.reduce((s, cu) => s + Math.max(0, customerBalance(cu.id)), 0);
+  const totalDebts = state.data.customers.reduce((s, cu) => {
+    const b = customerBalance(cu.id);
+    return s + (b > 0 ? b : 0);
+  }, 0);
+  const totalOwed = state.data.customers.reduce((s, cu) => {
+    const b = customerBalance(cu.id);
+    return s + (b < 0 ? -b : 0);
+  }, 0);
   const totalCash = sales.reduce((s, x) => s + (Number(x.paid) || 0), 0);
   const lowStock = state.data.items.filter(i => Number(i.quantity) <= Number(i.minQuantity || 0)).length;
 
@@ -173,11 +197,11 @@ function renderDashboard(c) {
     <div class="stats-grid">
       <div class="stat-card green"><div class="stat-label">إجمالي المبيعات</div><div class="stat-value">${fmt(totalSales)}</div></div>
       <div class="stat-card orange"><div class="stat-label">إجمالي المشتريات</div><div class="stat-value">${fmt(totalPurchases)}</div></div>
-      <div class="stat-card red"><div class="stat-label">ديون العملاء</div><div class="stat-value">${fmt(totalDebts)}</div></div>
-      <div class="stat-card purple"><div class="stat-label">النقد المُحصّل</div><div class="stat-value">${fmt(totalCash)}</div></div>
-      <div class="stat-card"><div class="stat-label">عدد العملاء</div><div class="stat-value">${state.data.customers.length}</div></div>
+      <div class="stat-card red"><div class="stat-label">ديون لنا (مدينون)</div><div class="stat-value">${fmt(totalDebts)}</div></div>
+      <div class="stat-card purple"><div class="stat-label">ديون علينا (دائنون)</div><div class="stat-value">${fmt(totalOwed)}</div></div>
+      <div class="stat-card"><div class="stat-label">النقد المُحصّل</div><div class="stat-value">${fmt(totalCash)}</div></div>
+      <div class="stat-card"><div class="stat-label">عدد العملاء والموردين</div><div class="stat-value">${state.data.customers.length}</div></div>
       <div class="stat-card"><div class="stat-label">عدد الأصناف</div><div class="stat-value">${state.data.items.length}</div></div>
-      <div class="stat-card"><div class="stat-label">عدد الموظفين</div><div class="stat-value">${state.data.employees.length}</div></div>
       <div class="stat-card ${lowStock ? 'red' : 'green'}"><div class="stat-label">أصناف تحت الحد الأدنى</div><div class="stat-value">${lowStock}</div></div>
     </div>
 
@@ -241,9 +265,7 @@ function setFilter(k, v) { state.filters[k] = v; renderSection(); }
 let tempSaleItems = [];
 
 function openSaleForm() {
-  if (!state.data.customers.length) { alert('أضف عميلاً أولاً'); return; }
   tempSaleItems = [];
-  const customers = state.data.customers;
   const items = state.data.items;
 
   openModal('فاتورة بيع جديدة', `
@@ -253,12 +275,18 @@ function openSaleForm() {
         <select id="saleType"><option value="cash">نقدي</option><option value="credit">آجل</option></select>
       </div>
     </div>
-    <div class="form-group"><label>العميل</label>
-      <select id="saleCustomer">${customers.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
+    <div class="form-group">
+      <label>العميل * <small style="color:#64748b;font-weight:400;">(اكتب اسمًا جديدًا أو اختر من القائمة)</small></label>
+      <input list="customersListS" id="saleCustomer" placeholder="اكتب أو اختر اسم العميل..." autocomplete="off">
+      <datalist id="customersListS">
+        ${state.data.customers.map(c=>`<option value="${esc(c.name)}"></option>`).join('')}
+      </datalist>
     </div>
     <div class="form-group"><label>الأصناف</label>
       <div id="saleItemsContainer"></div>
-      <button type="button" class="btn btn-secondary btn-sm" onclick="addSaleItemRow()">+ إضافة صنف</button>
+      ${items.length 
+        ? `<button type="button" class="btn btn-secondary btn-sm" onclick="addSaleItemRow()">+ إضافة صنف</button>` 
+        : `<div style="padding:12px;background:#fef3c7;border-radius:8px;color:#78350f;font-size:13px;">⚠️ لا توجد أصناف في المخزون. أضف أصنافًا أولًا من فاتورة شراء.</div>`}
     </div>
     <div class="form-row-3">
       <div class="form-group"><label>الخصم</label><input type="number" id="saleDiscount" value="0" min="0" step="0.01" oninput="recalcSale()"></div>
@@ -278,7 +306,7 @@ function openSaleForm() {
       <button class="btn btn-primary" onclick="saveSale()">💾 حفظ الفاتورة</button>
     </div>
   `);
-  addSaleItemRow();
+  if (items.length) addSaleItemRow();
 }
 
 function addSaleItemRow() {
@@ -334,10 +362,24 @@ function recalcSale() {
 }
 
 async function saveSale() {
+  const customerName = $('#saleCustomer').value.trim();
+  if (!customerName) { alert('اكتب اسم العميل'); return; }
+
   const validItems = tempSaleItems.filter(i => i.itemId && i.qty > 0);
   if (!validItems.length) { alert('أضف صنفاً واحداً على الأقل'); return; }
-  const customerId = $('#saleCustomer').value;
-  const customer = state.data.customers.find(c => c.id === customerId);
+
+  // 1) البحث عن عميل أو إنشاؤه تلقائيًا
+  let customer = state.data.customers.find(c => c.name.trim() === customerName);
+  let customerId = customer?.id;
+  if (!customer) {
+    const ref = await userCol('customers').add({
+      name: customerName, phone: '', address: '',
+      openingBalance: 0, createdAt: Date.now()
+    });
+    customerId = ref.id;
+  }
+
+  // 2) حساب الإجماليات
   const sub = validItems.reduce((s,i)=>s+i.total,0);
   const disc = Number($('#saleDiscount').value)||0;
   const tax = Number($('#saleTax').value)||0;
@@ -345,20 +387,22 @@ async function saveSale() {
   const paid = Number($('#salePaid').value)||0;
   const type = $('#saleType').value;
 
+  // 3) حفظ الفاتورة
   const number = await nextNumber('sales', 'S');
-  const sale = {
-    number, date: $('#saleDate').value, type, customerId, customerName: customer?.name || '',
+  await userCol('sales').add({
+    number, date: $('#saleDate').value, type,
+    customerId, customerName,
     items: validItems, subtotal: sub, discount: disc, tax, total, paid,
     remaining: total - paid, notes: $('#saleNotes').value || '',
     createdAt: Date.now()
-  };
-  await userCol('sales').add(sale);
+  });
 
-  // Update inventory
+  // 4) خصم المخزون
   const batch = db.batch();
   validItems.forEach(it => {
-    const ref = userCol('items').doc(it.itemId);
-    batch.update(ref, { quantity: firebase.firestore.FieldValue.increment(-it.qty) });
+    batch.update(userCol('items').doc(it.itemId), {
+      quantity: firebase.firestore.FieldValue.increment(-it.qty)
+    });
   });
   await batch.commit();
 
@@ -443,14 +487,19 @@ function renderPurchases(c) {
 let tempPurchaseItems = [];
 
 function openPurchaseForm() {
-  if (!state.data.items.length) { alert('أضف أصنافاً أولاً'); return; }
   tempPurchaseItems = [];
   openModal('فاتورة شراء جديدة', `
     <div class="form-row">
       <div class="form-group"><label>التاريخ</label><input type="date" id="pDate" value="${today()}"></div>
-      <div class="form-group"><label>المورد</label><input type="text" id="pSupplier" placeholder="اسم المورد"></div>
+      <div class="form-group">
+        <label>المورد * <small style="color:#64748b;font-weight:400;">(جديد أو موجود)</small></label>
+        <input list="customersListP" id="pSupplier" placeholder="اكتب أو اختر اسم المورد..." autocomplete="off">
+        <datalist id="customersListP">
+          ${state.data.customers.map(c=>`<option value="${esc(c.name)}"></option>`).join('')}
+        </datalist>
+      </div>
     </div>
-    <div class="form-group"><label>الأصناف</label>
+    <div class="form-group"><label>الأصناف <small style="color:#64748b;font-weight:400;">(اكتب اسمًا جديدًا أو اختر موجودًا)</small></label>
       <div id="pItemsContainer"></div>
       <button type="button" class="btn btn-secondary btn-sm" onclick="addPurchaseItemRow()">+ إضافة صنف</button>
     </div>
@@ -474,7 +523,7 @@ function openPurchaseForm() {
 }
 
 function addPurchaseItemRow() {
-  tempPurchaseItems.push({ itemId:'', name:'', qty:1, price:0, total:0 });
+  tempPurchaseItems.push({ itemId:'', itemName:'', qty:1, price:0, total:0 });
   renderPurchaseItemRows();
 }
 
@@ -484,31 +533,38 @@ function renderPurchaseItemRows() {
   const items = state.data.items;
   cont.innerHTML = tempPurchaseItems.map((it, i) => `
     <div class="item-row">
-      <select onchange="updatePurchaseItem(${i},'itemId',this.value)">
-        <option value="">-- اختر صنف --</option>
-        ${items.map(x=>`<option value="${x.id}" ${it.itemId===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}
-      </select>
-      <input type="number" min="1" value="${it.qty}" onchange="updatePurchaseItem(${i},'qty',this.value)">
-      <input type="number" min="0" step="0.01" value="${it.price}" onchange="updatePurchaseItem(${i},'price',this.value)">
+      <input list="itemsListP" placeholder="اكتب أو اختر اسم الصنف..." 
+             value="${esc(it.itemName)}" 
+             onchange="updatePurchaseItem(${i},'itemName',this.value)" autocomplete="off">
+      <input type="number" min="1" value="${it.qty}" 
+             onchange="updatePurchaseItem(${i},'qty',this.value)" placeholder="الكمية">
+      <input type="number" min="0" step="0.01" value="${it.price}" 
+             onchange="updatePurchaseItem(${i},'price',this.value)" placeholder="سعر التكلفة">
       <span class="row-total">${fmt(it.total)}</span>
       <button class="row-remove" onclick="removePurchaseItem(${i})">×</button>
     </div>
-  `).join('');
+  `).join('') + `
+    <datalist id="itemsListP">
+      ${items.map(x=>`<option value="${esc(x.name)}"></option>`).join('')}
+    </datalist>
+  `;
   recalcPurchase();
 }
 
 function updatePurchaseItem(i, field, val) {
   const it = tempPurchaseItems[i];
   if (!it) return;
-  if (field === 'itemId') {
-    const item = state.data.items.find(x => x.id === val);
-    it.itemId = val; it.name = item?.name || '';
-    if (item && !it.price) it.price = Number(item.cost) || 0;
+  if (field === 'itemName') {
+    it.itemName = val.trim();
+    const existing = state.data.items.find(x => x.name.trim().toLowerCase() === it.itemName.toLowerCase());
+    if (existing && !it.price) it.price = Number(existing.cost) || 0;
+    it.itemId = existing?.id || '';
   } else if (field === 'qty') it.qty = Math.max(0, Number(val) || 0);
   else if (field === 'price') it.price = Math.max(0, Number(val) || 0);
   it.total = it.qty * it.price;
   renderPurchaseItemRows();
 }
+
 function removePurchaseItem(i) { tempPurchaseItems.splice(i,1); renderPurchaseItemRows(); }
 
 function recalcPurchase() {
@@ -523,29 +579,70 @@ function recalcPurchase() {
 }
 
 async function savePurchase() {
-  const validItems = tempPurchaseItems.filter(i => i.itemId && i.qty > 0);
+  const supplierName = $('#pSupplier').value.trim();
+  if (!supplierName) { alert('اكتب اسم المورد'); return; }
+
+  const validItems = tempPurchaseItems.filter(i => i.itemName && i.qty > 0);
   if (!validItems.length) { alert('أضف صنفاً واحداً على الأقل'); return; }
-  const sub = validItems.reduce((s,i)=>s+i.total,0);
+
+  // 1) البحث عن المورد أو إنشاؤه
+  let supplier = state.data.customers.find(c => c.name.trim() === supplierName);
+  let supplierId = supplier?.id;
+  if (!supplier) {
+    const ref = await userCol('customers').add({
+      name: supplierName, phone: '', address: '',
+      openingBalance: 0, createdAt: Date.now()
+    });
+    supplierId = ref.id;
+  }
+
+  // 2) معالجة الأصناف (إنشاء الجديد منها)
+  const finalItems = [];
+  const inventoryUpdates = [];
+  for (const it of validItems) {
+    let existing = state.data.items.find(x => x.name.trim().toLowerCase() === it.itemName.trim().toLowerCase());
+    let itemId = existing?.id;
+    if (!existing) {
+      const ref = await userCol('items').add({
+        name: it.itemName.trim(), code: '', unit: '',
+        quantity: 0,
+        cost: it.price,
+        price: Math.round(it.price * 1.2 * 100) / 100,
+        minQuantity: 0, notes: '', createdAt: Date.now()
+      });
+      itemId = ref.id;
+    }
+    finalItems.push({ itemId, name: it.itemName.trim(), qty: it.qty, price: it.price, total: it.total });
+    inventoryUpdates.push({ itemId, qty: it.qty, cost: it.price });
+  }
+
+  // 3) حساب الإجماليات
+  const sub = finalItems.reduce((s,i)=>s+i.total,0);
   const disc = Number($('#pDiscount').value)||0;
   const tax = Number($('#pTax').value)||0;
   const total = sub - disc + tax;
   const paid = Number($('#pPaid').value)||0;
 
+  // 4) حفظ الفاتورة
   const number = await nextNumber('purchases', 'P');
   await userCol('purchases').add({
-    number, date: $('#pDate').value, supplierName: $('#pSupplier').value || '',
-    items: validItems, subtotal: sub, discount: disc, tax, total, paid,
-    remaining: total - paid, notes: $('#pNotes').value || '', createdAt: Date.now()
+    number, date: $('#pDate').value,
+    supplierId, supplierName,
+    items: finalItems, subtotal: sub, discount: disc, tax, total, paid,
+    remaining: total - paid, notes: $('#pNotes').value || '',
+    createdAt: Date.now()
   });
 
+  // 5) تحديث المخزون
   const batch = db.batch();
-  validItems.forEach(it => {
-    batch.update(userCol('items').doc(it.itemId), {
-      quantity: firebase.firestore.FieldValue.increment(it.qty),
-      cost: it.price
+  inventoryUpdates.forEach(u => {
+    batch.update(userCol('items').doc(u.itemId), {
+      quantity: firebase.firestore.FieldValue.increment(u.qty),
+      cost: u.cost
     });
   });
   await batch.commit();
+
   closeModal();
 }
 
@@ -564,43 +661,64 @@ async function deletePurchase(id) {
 /* ===================== CUSTOMERS ===================== */
 function renderCustomers(c) {
   const q = (state.filters.customers || '').toLowerCase();
-  const list = state.data.customers.filter(x => !q || (x.name||'').toLowerCase().includes(q) || (x.phone||'').includes(q));
+  const list = state.data.customers.filter(x => !q || (x.name||'').toLowerCase().includes(q));
 
   c.innerHTML = `
     <div class="toolbar">
       <div class="toolbar-left">
-        <input class="search-input" placeholder="🔍 بحث بالاسم أو الهاتف..." value="${esc(state.filters.customers||'')}" oninput="setFilter('customers',this.value)">
+        <input class="search-input" placeholder="🔍 بحث بالاسم..." value="${esc(state.filters.customers||'')}" oninput="setFilter('customers',this.value)">
       </div>
       <div class="toolbar-right">
-        <button class="btn btn-primary" onclick="openCustomerForm()">+ عميل جديد</button>
+        <button class="btn btn-primary" onclick="openCustomerForm()">+ إضافة طرف جديد</button>
       </div>
     </div>
     <div class="card">
+      <h3>👥 العملاء والموردون <small style="color:#64748b;font-weight:400;font-size:13px;">(الأرصدة تُحسب تلقائيًا)</small></h3>
       ${list.length ? `
       <div class="table-wrap"><table>
-        <thead><tr><th>الاسم</th><th>الهاتف</th><th>العنوان</th><th>رصيد افتتاحي</th><th>الرصيد الحالي</th><th>إجراءات</th></tr></thead>
+        <thead><tr>
+          <th>الاسم</th><th>الهاتف</th>
+          <th>بيع آجل</th><th>شراء آجل</th>
+          <th>قبض</th><th>صرف</th>
+          <th>الرصيد الصافي</th>
+          <th>إجراءات</th>
+        </tr></thead>
         <tbody>${list.map(cu => {
           const bal = customerBalance(cu.id);
+          const salesRem = state.data.sales.filter(s => s.customerId === cu.id)
+            .reduce((s,x)=>s+(Number(x.remaining)||0),0);
+          const purchRem = state.data.purchases.filter(p => p.supplierId === cu.id)
+            .reduce((s,x)=>s+(Number(x.remaining)||0),0);
+          const rec = state.data.receipts.filter(r => r.customerId === cu.id)
+            .reduce((s,x)=>s+(Number(x.amount)||0),0);
+          const pay = state.data.payments.filter(p => p.partyId === cu.id)
+            .reduce((s,x)=>s+(Number(x.amount)||0),0);
+
+          const balLabel = bal > 0 ? 'مدين لنا' : bal < 0 ? 'دائن (لنا عنده)' : 'متعادل';
+          const balClass = bal > 0 ? 'badge-red' : bal < 0 ? 'badge-green' : 'badge-gray';
+
           return `<tr>
             <td><strong>${esc(cu.name)}</strong></td>
             <td>${esc(cu.phone||'-')}</td>
-            <td>${esc(cu.address||'-')}</td>
-            <td>${fmt(cu.openingBalance)}</td>
-            <td><span class="badge ${bal>0?'badge-red':bal<0?'badge-green':'badge-gray'}">${fmt(bal)}</span></td>
+            <td>${fmt(salesRem)}</td>
+            <td>${fmt(purchRem)}</td>
+            <td>${fmt(rec)}</td>
+            <td>${fmt(pay)}</td>
+            <td><span class="badge ${balClass}">${fmt(Math.abs(bal))} — ${balLabel}</span></td>
             <td>
               <button class="btn btn-secondary btn-sm" onclick="openCustomerForm('${cu.id}')">✏️</button>
               <button class="btn btn-danger btn-sm" onclick="softDelete('customers','${cu.id}')">🗑️</button>
             </td>
           </tr>`;
         }).join('')}</tbody>
-      </table></div>` : `<div class="empty-state"><div class="icon">👥</div>لا يوجد عملاء</div>`}
+      </table></div>` : `<div class="empty-state"><div class="icon">👥</div>لا توجد بيانات — سيتم إنشاء العملاء والموردين تلقائيًا عند إنشاء الفواتير</div>`}
     </div>
   `;
 }
 
 function openCustomerForm(id) {
   const cu = id ? state.data.customers.find(x => x.id === id) : null;
-  openModal(cu ? 'تعديل عميل' : 'عميل جديد', `
+  openModal(cu ? 'تعديل طرف' : 'طرف جديد', `
     <div class="form-group"><label>الاسم *</label><input id="cuName" value="${esc(cu?.name||'')}"></div>
     <div class="form-row">
       <div class="form-group"><label>الهاتف</label><input id="cuPhone" value="${esc(cu?.phone||'')}"></div>
@@ -643,6 +761,7 @@ function renderItems(c) {
       </div>
     </div>
     <div class="card">
+      <h3>📦 الأصناف والمخزون</h3>
       ${list.length ? `
       <div class="table-wrap"><table>
         <thead><tr><th>الكود</th><th>الاسم</th><th>الوحدة</th><th>سعر التكلفة</th><th>سعر البيع</th><th>الكمية</th><th>الحد الأدنى</th><th>إجراءات</th></tr></thead>
@@ -662,7 +781,7 @@ function renderItems(c) {
             </td>
           </tr>`;
         }).join('')}</tbody>
-      </table></div>` : `<div class="empty-state"><div class="icon">📦</div>لا توجد أصناف</div>`}
+      </table></div>` : `<div class="empty-state"><div class="icon">📦</div>لا توجد أصناف — ستُضاف تلقائيًا عند حفظ فواتير الشراء</div>`}
     </div>
   `;
 }
@@ -715,7 +834,6 @@ async function saveItem(id) {
 function renderEmployees(c) {
   const q = (state.filters.employees || '').toLowerCase();
   const list = state.data.employees.filter(x => !q || (x.name||'').toLowerCase().includes(q));
-  const month = monthNow();
 
   c.innerHTML = `
     <div class="toolbar">
@@ -935,12 +1053,15 @@ function renderReceipts(c) {
 }
 
 function openReceiptForm() {
-  if (!state.data.customers.length) { alert('أضف عميلاً أولاً'); return; }
   openModal('سند قبض جديد', `
     <div class="form-row">
       <div class="form-group"><label>التاريخ</label><input type="date" id="rDate" value="${today()}"></div>
-      <div class="form-group"><label>العميل</label>
-        <select id="rCust">${state.data.customers.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
+      <div class="form-group">
+        <label>العميل * (اكتب أو اختر)</label>
+        <input list="customersListR" id="rCust" placeholder="اكتب أو اختر اسم العميل..." autocomplete="off">
+        <datalist id="customersListR">
+          ${state.data.customers.map(c=>`<option value="${esc(c.name)}"></option>`).join('')}
+        </datalist>
       </div>
     </div>
     <div class="form-row">
@@ -958,13 +1079,22 @@ function openReceiptForm() {
 }
 
 async function saveReceipt() {
-  const custId = $('#rCust').value;
-  const cust = state.data.customers.find(c => c.id === custId);
+  const name = $('#rCust').value.trim();
   const amount = Number($('#rAmount').value) || 0;
-  if (amount <= 0) { alert('أدخل مبلغاً صحيحاً'); return; }
+  if (!name || amount <= 0) { alert('أدخل بيانات صحيحة'); return; }
+
+  let customer = state.data.customers.find(c => c.name.trim() === name);
+  let customerId = customer?.id;
+  if (!customer) {
+    const ref = await userCol('customers').add({
+      name, phone: '', address: '', openingBalance: 0, createdAt: Date.now()
+    });
+    customerId = ref.id;
+  }
+
   const number = await nextNumber('receipts', 'RC');
   await userCol('receipts').add({
-    number, date: $('#rDate').value, customerId: custId, customerName: cust?.name || '',
+    number, date: $('#rDate').value, customerId, customerName: name,
     amount, method: $('#rMethod').value, notes: $('#rNotes').value || '', createdAt: Date.now()
   });
   closeModal();
@@ -998,7 +1128,13 @@ function openPaymentForm() {
   openModal('سند صرف جديد', `
     <div class="form-row">
       <div class="form-group"><label>التاريخ</label><input type="date" id="payDate" value="${today()}"></div>
-      <div class="form-group"><label>المستفيد *</label><input id="payBen" placeholder="اسم المستفيد"></div>
+      <div class="form-group">
+        <label>المستفيد * (مورد / شخص)</label>
+        <input list="customersListPay" id="payBen" placeholder="اكتب أو اختر..." autocomplete="off">
+        <datalist id="customersListPay">
+          ${state.data.customers.map(c=>`<option value="${esc(c.name)}"></option>`).join('')}
+        </datalist>
+      </div>
     </div>
     <div class="form-row">
       <div class="form-group"><label>المبلغ *</label><input type="number" id="payAmount" step="0.01" min="0"></div>
@@ -1015,13 +1151,25 @@ function openPaymentForm() {
 }
 
 async function savePayment() {
-  const ben = $('#payBen').value.trim();
+  const name = $('#payBen').value.trim();
   const amount = Number($('#payAmount').value) || 0;
-  if (!ben || amount <= 0) { alert('أدخل بيانات صحيحة'); return; }
+  if (!name || amount <= 0) { alert('أدخل بيانات صحيحة'); return; }
+
+  let party = state.data.customers.find(c => c.name.trim() === name);
+  let partyId = party?.id;
+  if (!party) {
+    const ref = await userCol('customers').add({
+      name, phone: '', address: '', openingBalance: 0, createdAt: Date.now()
+    });
+    partyId = ref.id;
+  }
+
   const number = await nextNumber('payments', 'PV');
   await userCol('payments').add({
-    number, date: $('#payDate').value, beneficiary: ben, amount,
-    method: $('#payMethod').value, notes: $('#payNotes').value || '', createdAt: Date.now()
+    number, date: $('#payDate').value,
+    partyId, beneficiary: name, amount,
+    method: $('#payMethod').value, notes: $('#payNotes').value || '',
+    createdAt: Date.now()
   });
   closeModal();
 }
@@ -1077,13 +1225,16 @@ function renderReports(c) {
     </div>
 
     <div class="card">
-      <h3>👥 أرصدة العملاء</h3>
+      <h3>👥 أرصدة العملاء والموردين</h3>
       <div class="table-wrap"><table>
-        <thead><tr><th>العميل</th><th>الهاتف</th><th>الرصيد</th></tr></thead>
+        <thead><tr><th>الاسم</th><th>الهاتف</th><th>الرصيد</th><th>الحالة</th></tr></thead>
         <tbody>${state.data.customers.map(cu => {
           const bal = customerBalance(cu.id);
+          const label = bal > 0 ? 'مدين لنا' : bal < 0 ? 'دائن (لنا عنده)' : 'متعادل';
+          const cls = bal > 0 ? 'badge-red' : bal < 0 ? 'badge-green' : 'badge-gray';
           return `<tr><td>${esc(cu.name)}</td><td>${esc(cu.phone||'-')}</td>
-            <td><span class="badge ${bal>0?'badge-red':'badge-green'}">${fmt(bal)}</span></td></tr>`;
+            <td><span class="badge ${cls}">${fmt(Math.abs(bal))}</span></td>
+            <td>${label}</td></tr>`;
         }).join('')}</tbody>
       </table></div>
     </div>
