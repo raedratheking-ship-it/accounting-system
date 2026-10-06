@@ -1,6 +1,6 @@
 /* =====================================================================
    النظام المحاسبي المتكامل - app.js
-   النسخة النهائية الكاملة - مع إصلاح قراءة الحقول قبل العمليات async
+   النسخة النهائية - مع الحفظ اللحظي لحقول الخصم/الضريبة/المدفوع
    ===================================================================== */
 
 /* ===================== Utilities ===================== */
@@ -11,19 +11,30 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;',
 const today = () => new Date().toISOString().slice(0,10);
 const monthNow = () => new Date().toISOString().slice(0,7);
 
-// ✅ قراءة آمنة للحقول الرقمية (قبل أي عملية async)
+// قراءة آمنة للحقول
 const readNum = (sel, fallback = 0) => {
   const el = document.querySelector(sel);
   if (!el) return fallback;
   const v = parseFloat(el.value);
   return isNaN(v) ? fallback : v;
 };
-
-// ✅ قراءة آمنة للحقول النصية
 const readStr = (sel, fallback = '') => {
   const el = document.querySelector(sel);
   return el ? (el.value || '').trim() : fallback;
 };
+
+/* ============ ✅ حفظ لحظي لقيم حقول الفواتير ============ */
+let purchaseForm = { disc: 0, tax: 0, paid: 0 };
+let saleForm = { disc: 0, tax: 0, paid: 0 };
+
+function onPurchaseField(field, value) {
+  purchaseForm[field] = parseFloat(value) || 0;
+  recalcPurchase();
+}
+function onSaleField(field, value) {
+  saleForm[field] = parseFloat(value) || 0;
+  recalcSale();
+}
 
 /* ===================== State ===================== */
 const state = {
@@ -161,23 +172,14 @@ function customerBalance(id) {
   const c = state.data.customers.find(x => x.id === id);
   if (!c) return 0;
   const opening = Number(c.openingBalance) || 0;
-
-  const salesRemaining = state.data.sales
-    .filter(s => s.customerId === id)
+  const salesRemaining = state.data.sales.filter(s => s.customerId === id)
     .reduce((s, x) => s + (Number(x.remaining) || 0), 0);
-
-  const receipts = state.data.receipts
-    .filter(r => r.customerId === id)
+  const receipts = state.data.receipts.filter(r => r.customerId === id)
     .reduce((s, x) => s + (Number(x.amount) || 0), 0);
-
-  const purchasesRemaining = state.data.purchases
-    .filter(p => p.supplierId === id)
+  const purchasesRemaining = state.data.purchases.filter(p => p.supplierId === id)
     .reduce((s, x) => s + (Number(x.remaining) || 0), 0);
-
-  const payments = state.data.payments
-    .filter(p => p.partyId === id)
+  const payments = state.data.payments.filter(p => p.partyId === id)
     .reduce((s, x) => s + (Number(x.amount) || 0), 0);
-
   return opening + salesRemaining - receipts - purchasesRemaining + payments;
 }
 
@@ -323,6 +325,7 @@ let tempSaleItems = [];
 
 function openSaleForm() {
   tempSaleItems = [];
+  saleForm = { disc: 0, tax: 0, paid: 0 };  // ✅ تصفير
   const items = state.data.items;
 
   openModal('فاتورة بيع جديدة', `
@@ -346,9 +349,12 @@ function openSaleForm() {
         : `<div style="padding:12px;background:#fef3c7;border-radius:8px;color:#78350f;font-size:13px;">⚠️ لا توجد أصناف في المخزون. أضف أصنافًا أولًا من فاتورة شراء.</div>`}
     </div>
     <div class="form-row-3">
-      <div class="form-group"><label>الخصم</label><input type="number" id="saleDiscount" value="0" min="0" step="0.01" oninput="recalcSale()"></div>
-      <div class="form-group"><label>الضريبة</label><input type="number" id="saleTax" value="0" min="0" step="0.01" oninput="recalcSale()"></div>
-      <div class="form-group"><label>المدفوع</label><input type="number" id="salePaid" value="0" min="0" step="0.01" oninput="recalcSale()"></div>
+      <div class="form-group"><label>الخصم</label>
+        <input type="number" id="saleDiscount" value="0" min="0" step="0.01" oninput="onSaleField('disc', this.value)"></div>
+      <div class="form-group"><label>الضريبة</label>
+        <input type="number" id="saleTax" value="0" min="0" step="0.01" oninput="onSaleField('tax', this.value)"></div>
+      <div class="form-group"><label>المدفوع</label>
+        <input type="number" id="salePaid" value="0" min="0" step="0.01" oninput="onSaleField('paid', this.value)"></div>
     </div>
     <div class="form-group"><label>ملاحظات</label><textarea id="saleNotes" rows="2"></textarea></div>
     <div class="totals-box">
@@ -404,39 +410,35 @@ function updateSaleItem(i, field, val) {
 }
 function removeSaleItem(i) { tempSaleItems.splice(i,1); renderSaleItemRows(); }
 
+// ✅ recalcSale يقرأ من saleForm
 function recalcSale() {
   const sub = tempSaleItems.reduce((s,i)=>s+i.total,0);
-  const disc = Number($('#saleDiscount')?.value)||0;
-  const tax = Number($('#saleTax')?.value)||0;
-  const paid = Number($('#salePaid')?.value)||0;
-  const total = sub - disc + tax;
-  const rem = total - paid;
+  const total = sub - saleForm.disc + saleForm.tax;
+  const rem = total - saleForm.paid;
   if ($('#saleSubtotal')) $('#saleSubtotal').textContent = fmt(sub);
-  if ($('#saleDiscDisp')) $('#saleDiscDisp').textContent = fmt(disc);
-  if ($('#saleTaxDisp')) $('#saleTaxDisp').textContent = fmt(tax);
+  if ($('#saleDiscDisp')) $('#saleDiscDisp').textContent = fmt(saleForm.disc);
+  if ($('#saleTaxDisp')) $('#saleTaxDisp').textContent = fmt(saleForm.tax);
   if ($('#saleTotal')) $('#saleTotal').textContent = fmt(total);
   if ($('#saleRemaining')) $('#saleRemaining').textContent = fmt(rem);
 }
 
-/* ===================================================================
-   ✅ saveSale - تم الإصلاح: قراءة كل القيم قبل أي عملية async
-   =================================================================== */
+// ✅ saveSale يقرأ من saleForm
 async function saveSale() {
-  // ✅ اقرأ كل القيم أولاً قبل أي عملية async
   const customerName = readStr('#saleCustomer');
   const date = readStr('#saleDate');
   const type = readStr('#saleType', 'cash');
-  const disc = readNum('#saleDiscount');
-  const tax = readNum('#saleTax');
-  const paid = readNum('#salePaid');
   const notes = readStr('#saleNotes');
+  const disc = saleForm.disc;
+  const tax = saleForm.tax;
+  const paid = saleForm.paid;
+
+  console.log('🔍 قيم البيع المقروءة:', { disc, tax, paid });
 
   if (!customerName) { alert('اكتب اسم العميل'); return; }
 
   const validItems = tempSaleItems.filter(i => i.itemId && i.qty > 0);
   if (!validItems.length) { alert('أضف صنفاً واحداً على الأقل'); return; }
 
-  // الحسابات
   const sub = validItems.reduce((s,i)=>s+i.total,0);
   const total = sub - disc + tax;
   const remaining = total - paid;
@@ -583,6 +585,7 @@ let tempPurchaseItems = [];
 
 function openPurchaseForm() {
   tempPurchaseItems = [];
+  purchaseForm = { disc: 0, tax: 0, paid: 0 };  // ✅ تصفير
   openModal('فاتورة شراء جديدة', `
     <div class="form-row">
       <div class="form-group"><label>التاريخ</label><input type="date" id="pDate" value="${today()}"></div>
@@ -599,9 +602,12 @@ function openPurchaseForm() {
       <button type="button" class="btn btn-secondary btn-sm" onclick="addPurchaseItemRow()">+ إضافة صنف</button>
     </div>
     <div class="form-row-3">
-      <div class="form-group"><label>الخصم</label><input type="number" id="pDiscount" value="0" oninput="recalcPurchase()"></div>
-      <div class="form-group"><label>الضريبة</label><input type="number" id="pTax" value="0" oninput="recalcPurchase()"></div>
-      <div class="form-group"><label>المدفوع</label><input type="number" id="pPaid" value="0" oninput="recalcPurchase()"></div>
+      <div class="form-group"><label>الخصم</label>
+        <input type="number" id="pDiscount" value="0" oninput="onPurchaseField('disc', this.value)"></div>
+      <div class="form-group"><label>الضريبة</label>
+        <input type="number" id="pTax" value="0" oninput="onPurchaseField('tax', this.value)"></div>
+      <div class="form-group"><label>المدفوع</label>
+        <input type="number" id="pPaid" value="0" oninput="onPurchaseField('paid', this.value)"></div>
     </div>
     <div class="form-group"><label>ملاحظات</label><textarea id="pNotes" rows="2"></textarea></div>
     <div class="totals-box">
@@ -662,28 +668,25 @@ function updatePurchaseItem(i, field, val) {
 
 function removePurchaseItem(i) { tempPurchaseItems.splice(i,1); renderPurchaseItemRows(); }
 
+// ✅ recalcPurchase يقرأ من purchaseForm
 function recalcPurchase() {
   const sub = tempPurchaseItems.reduce((s,i)=>s+i.total,0);
-  const disc = Number($('#pDiscount')?.value)||0;
-  const tax = Number($('#pTax')?.value)||0;
-  const paid = Number($('#pPaid')?.value)||0;
-  const total = sub - disc + tax;
+  const total = sub - purchaseForm.disc + purchaseForm.tax;
   if ($('#pSubtotal')) $('#pSubtotal').textContent = fmt(sub);
   if ($('#pTotal')) $('#pTotal').textContent = fmt(total);
-  if ($('#pRemaining')) $('#pRemaining').textContent = fmt(total - paid);
+  if ($('#pRemaining')) $('#pRemaining').textContent = fmt(total - purchaseForm.paid);
 }
 
-/* ===================================================================
-   ✅ savePurchase - تم الإصلاح: قراءة كل القيم قبل أي عملية async
-   =================================================================== */
+// ✅ savePurchase يقرأ من purchaseForm
 async function savePurchase() {
-  // ✅ اقرأ كل القيم أولاً قبل أي عملية async
   const supplierName = readStr('#pSupplier');
   const date = readStr('#pDate');
-  const disc = readNum('#pDiscount');
-  const tax = readNum('#pTax');
-  const paid = readNum('#pPaid');
   const notes = readStr('#pNotes');
+  const disc = purchaseForm.disc;
+  const tax = purchaseForm.tax;
+  const paid = purchaseForm.paid;
+
+  console.log('🔍 قيم الشراء المقروءة:', { disc, tax, paid });
 
   if (!supplierName) { alert('اكتب اسم المورد'); return; }
 
