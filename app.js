@@ -1,52 +1,42 @@
 /* =====================================================================
    النظام المحاسبي المتكامل - app.js
-   VERSION 3 - إصلاح قراءة حقول الخصم/الضريبة/المدفوع
+   VERSION 5 - تسجيل الدخول عبر Redirect (بدون نوافذ منبثقة)
    ===================================================================== */
 
-console.log('✅ app.js VERSION 4 loaded — ' + new Date().toISOString());
+console.log('✅ app.js VERSION 5 loaded — ' + new Date().toISOString());
 
-/* ====== معالج تسجيل الدخول المحسّن ====== */
+/* ====== معالج تسجيل الدخول بـ Redirect ====== */
 (function setupLogin() {
   const btn = document.getElementById('googleLogin');
   if (!btn) {
-    console.error('❌ لم يتم العثور على زر تسجيل الدخول #googleLogin');
+    console.error('❌ لم يتم العثور على زر #googleLogin');
     return;
   }
   console.log('✅ زر تسجيل الدخول مرتبط');
 
-  btn.addEventListener('click', async () => {
+  btn.addEventListener('click', async (ev) => {
+    ev.preventDefault();
     console.log('🖱️ تم الضغط على زر تسجيل الدخول');
 
-    // التحقق من Firebase
     if (typeof firebase === 'undefined') {
-      alert('❌ Firebase SDK لم يُحمّل. تأكد من اتصالك بالإنترنت وأعد تحميل الصفحة.');
+      alert('❌ Firebase SDK لم يُحمّل — تحقق من الإنترنت');
       return;
     }
     if (typeof auth === 'undefined') {
-      alert('❌ Firebase Auth غير مهيأ. تحقق من firebase-config.js');
+      alert('❌ Firebase Auth غير مهيأ');
       return;
     }
 
     const provider = new firebase.auth.GoogleAuthProvider();
-    try {
-      console.log('🚀 محاولة فتح نافذة Google...');
-      await auth.signInWithPopup(provider);
-      console.log('✅ نجح تسجيل الدخول');
-    } catch (e) {
-      console.error('❌ خطأ تسجيل الدخول:', e.code, e.message);
+    provider.setCustomParameters({ prompt: 'select_account' });
 
-      // إذا حجب المتصفح النافذة → نستخدم Redirect
-      if (e.code === 'auth/popup-blocked' || e.code === 'auth/popup-closed-by-user') {
-        console.log('⚠️ النافذة محجوبة — التحويل إلى Redirect...');
-        try {
-          await auth.signInWithRedirect(provider);
-        } catch (e2) {
-          console.error('❌ خطأ Redirect:', e2);
-          document.getElementById('loginError').textContent = 'فشل تسجيل الدخول: ' + e2.message;
-        }
-      } else {
-        document.getElementById('loginError').textContent = 'فشل تسجيل الدخول: ' + e.message;
-      }
+    try {
+      console.log('🚀 التحويل إلى Google (Redirect)...');
+      await auth.signInWithRedirect(provider);
+    } catch (e) {
+      console.error('❌ خطأ Redirect:', e.code, e.message);
+      const errEl = document.getElementById('loginError');
+      if (errEl) errEl.textContent = 'فشل تسجيل الدخول: ' + e.message;
     }
   });
 })();
@@ -124,16 +114,7 @@ const state = {
 
 const COLLECTIONS = ['customers','employees','items','sales','purchases','receipts','payments','advances','salaries'];
 
-/* ===================== Auth ===================== */
-$('#googleLogin').addEventListener('click', async () => {
-  const provider = firebase.auth.GoogleAuthProvider();
-  try {
-    await auth.signInWithPopup(provider);
-  } catch (e) {
-    $('#loginError').textContent = 'فشل تسجيل الدخول: ' + e.message;
-  }
-});
-
+/* ===================== Auth State ===================== */
 $('#logoutBtn').addEventListener('click', async () => {
   if (confirm('هل تريد تسجيل الخروج؟')) await auth.signOut();
 });
@@ -487,7 +468,6 @@ function recalcSale() {
 }
 
 async function saveSale() {
-  // ✅ اقرأ من DOM مباشرة (الأحدث) مع الـ state كاحتياطي
   const pPaidEl = document.getElementById('salePaid');
   const pDiscEl = document.getElementById('saleDiscount');
   const pTaxEl = document.getElementById('saleTax');
@@ -743,7 +723,6 @@ function recalcPurchase() {
 }
 
 async function savePurchase() {
-  // ✅ اقرأ من DOM مباشرة (الأحدث)
   const pPaidEl = document.getElementById('pPaid');
   const pDiscEl = document.getElementById('pDiscount');
   const pTaxEl = document.getElementById('pTax');

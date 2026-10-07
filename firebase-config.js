@@ -1,5 +1,5 @@
 /* =================================================================
-   firebase-config.js — النسخة الصحيحة النهائية (Compat SDK فقط)
+   firebase-config.js — النسخة النهائية
    ================================================================= */
 
 // 1) التحقق من تحميل Firebase SDK
@@ -46,7 +46,7 @@ try {
 const auth = firebase.auth();
 const db = firebase.firestore();
 
-// 5) تفعيل العمل بدون إنترنت
+// 5) تفعيل الاستمرارية
 db.enablePersistence({ synchronizeTabs: true })
   .then(() => console.log('✅ Firestore persistence enabled'))
   .catch(err => {
@@ -56,3 +56,18 @@ db.enablePersistence({ synchronizeTabs: true })
   });
 
 console.log('✅ firebase-config.js loaded — auth & db ready');
+
+/* ====== معالج نتيجة الـ Redirect لتسجيل الدخول ====== */
+auth.getRedirectResult()
+  .then(result => {
+    if (result && result.user) {
+      console.log('✅ تم تسجيل الدخول عبر Redirect:', result.user.email);
+    } else {
+      console.log('ℹ️ لا يوجد نتيجة Redirect سابقة');
+    }
+  })
+  .catch(e => {
+    console.error('❌ Redirect result error:', e.code, e.message);
+    const errEl = document.getElementById('loginError');
+    if (errEl) errEl.textContent = 'فشل تسجيل الدخول: ' + e.message;
+  });
