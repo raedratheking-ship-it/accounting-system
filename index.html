@@ -27,7 +27,13 @@
 <!-- ===== التطبيق ===== -->
 <div id="app" class="app hidden">
   <aside id="sidebar" class="sidebar">
-    <div class="brand"><span>💰</span> المحاسبة</div>
+    <div class="brand">
+      <div class="brand-icon">💰</div>
+      <div class="brand-text">
+        <div class="name" id="brandName">المحاسبة</div>
+        <div class="sub">ACCOUNTING</div>
+      </div>
+    </div>
     <nav class="nav">
       <a data-section="dashboard" class="active"><span>📊</span> لوحة التحكم</a>
       <a data-section="journal"><span>📔</span> القيود اليومية</a>
@@ -43,15 +49,31 @@
       <a data-section="reports"><span>📈</span> التقارير</a>
       <a data-section="settings"><span>⚙️</span> الإعدادات</a>
     </nav>
+    <div class="sidebar-user">
+      <img id="userPhoto" alt="" referrerpolicy="no-referrer">
+      <div class="info">
+        <div class="name" id="userNameSidebar">المستخدم</div>
+        <div class="role">مدير النظام</div>
+      </div>
+    </div>
   </aside>
 
   <div class="main">
     <header class="topbar">
       <button id="menuToggle" class="menu-toggle">☰</button>
-      <h2 id="sectionTitle">لوحة التحكم</h2>
-      <div class="user-info">
-        <img id="userPhoto" alt="" referrerpolicy="no-referrer">
-        <span id="userName"></span>
+      <div class="topbar-search">
+        <input type="text" id="globalSearch" placeholder="ابحث عن عميل، فاتورة، صنف...">
+      </div>
+      <div class="topbar-actions">
+        <button class="icon-btn" title="الإشعارات">🔔<span class="badge-dot"></span></button>
+        <button class="icon-btn" title="الإعدادات" onclick="showSection('settings')">⚙️</button>
+        <div class="topbar-user">
+          <img id="userPhotoTop" alt="" referrerpolicy="no-referrer">
+          <div class="info">
+            <div class="name" id="userName">المستخدم</div>
+            <div class="role">مدير الحساب</div>
+          </div>
+        </div>
         <button id="logoutBtn" class="btn-logout">خروج</button>
       </div>
     </header>
@@ -74,8 +96,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-
-<!-- مكتبة تصدير PDF -->
+<!-- PDF -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
 <script src="firebase-config.js"></script>

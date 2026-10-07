@@ -1,9 +1,9 @@
 /* =====================================================================
    النظام المحاسبي المتكامل - app.js
-   VERSION 10 - ألوان ديناميكية من الشعار
+   VERSION 12 - جلسة دائمة + بيانات شركة فارغة + حقول هواتف ديناميكية
    ===================================================================== */
 
-console.log('✅ app.js VERSION 10 loaded — ' + new Date().toISOString());
+console.log('✅ app.js VERSION 12 loaded — ' + new Date().toISOString());
 
 /* ====== معالج تسجيل الدخول ====== */
 (function setupLogin() {
@@ -61,7 +61,7 @@ const readStr = (sel, fallback = '') => {
 };
 
 /* ============================================================
-   🎨 استخراج الألوان من الشعار وتطبيقها ديناميكيًا
+   🎨 استخراج الألوان من الشعار
    ============================================================ */
 function rgbToHex({ r, g, b }) {
   const toHex = v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
@@ -83,8 +83,8 @@ function adjustColor({ r, g, b }, amount) {
 async function extractColorsFromLogo(base64) {
   return new Promise(resolve => {
     const defaultColors = {
-      primary: { r: 30, g: 58, b: 138 },
-      secondary: { r: 14, g: 165, b: 233 }
+      primary: { r: 26, g: 59, b: 92 },
+      secondary: { r: 74, g: 158, b: 255 }
     };
     if (!base64) return resolve(defaultColors);
 
@@ -103,32 +103,21 @@ async function extractColorsFromLogo(base64) {
         for (let i = 0; i < data.length; i += 4) {
           const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
           if (a < 200) continue;
-
           const max = Math.max(r, g, b), min = Math.min(r, g, b);
           const lum = (max + min) / 2;
           if (lum > 235 || lum < 25) continue;
           const sat = max === 0 ? 0 : (max - min) / max;
           if (sat < 0.15 && lum > 180) continue;
-
           const k = `${Math.floor(r / 32)}_${Math.floor(g / 32)}_${Math.floor(b / 32)}`;
           if (!buckets[k]) buckets[k] = { r: 0, g: 0, b: 0, count: 0 };
-          buckets[k].r += r;
-          buckets[k].g += g;
-          buckets[k].b += b;
-          buckets[k].count++;
+          buckets[k].r += r; buckets[k].g += g; buckets[k].b += b; buckets[k].count++;
         }
 
         const sorted = Object.values(buckets)
-          .map(b => ({
-            r: Math.round(b.r / b.count),
-            g: Math.round(b.g / b.count),
-            b: Math.round(b.b / b.count),
-            count: b.count
-          }))
+          .map(b => ({ r: Math.round(b.r / b.count), g: Math.round(b.g / b.count), b: Math.round(b.b / b.count), count: b.count }))
           .sort((a, b) => b.count - a.count);
 
         if (sorted.length === 0) return resolve(defaultColors);
-
         const primary = sorted[0];
         let secondary = null;
         for (let i = 1; i < sorted.length; i++) {
@@ -137,7 +126,6 @@ async function extractColorsFromLogo(base64) {
           if (diff > 120) { secondary = c; break; }
         }
         if (!secondary) secondary = adjustColor(primary, 40);
-
         resolve({ primary, secondary });
       } catch (e) {
         console.warn('⚠️ خطأ استخراج الألوان:', e);
@@ -159,24 +147,16 @@ function applyThemeColors(primary, secondary) {
   root.style.setProperty('--primary-soft', rgbToHex(adjustColor(p, 82)));
   root.style.setProperty('--primary-pale', rgbToHex(adjustColor(p, 94)));
 
-  root.style.setProperty('--sky', rgbToHex(s));
-  root.style.setProperty('--sky-dark', rgbToHex(adjustColor(s, -18)));
-  root.style.setProperty('--sky-light', rgbToHex(adjustColor(s, 25)));
-  root.style.setProperty('--sky-soft', rgbToHex(adjustColor(s, 78)));
-  root.style.setProperty('--sky-pale', rgbToHex(adjustColor(s, 92)));
+  root.style.setProperty('--accent', rgbToHex(s));
+  root.style.setProperty('--accent-light', rgbToHex(adjustColor(s, 25)));
 
-  root.style.setProperty('--bg', rgbToHex(adjustColor(s, 94)));
-
-  console.log('🎨 تم تطبيق الألوان:', {
-    primary: rgbToHex(p),
-    secondary: rgbToHex(s)
-  });
+  console.log('🎨 تم تطبيق الألوان:', { primary: rgbToHex(p), secondary: rgbToHex(s) });
 }
 
 function applyDefaultTheme() {
   applyThemeColors(
-    { r: 30, g: 58, b: 138 },
-    { r: 14, g: 165, b: 233 }
+    { r: 26, g: 59, b: 92 },
+    { r: 74, g: 158, b: 255 }
   );
 }
 
@@ -188,10 +168,10 @@ const state = {
     receipts:[], payments:[], advances:[], salaries:[], journal:[]
   },
   settings: {
-    businessName: 'فكرة للديكور والاعلان',
-    address: 'القاعدة-شارع المشروع-جوار ملعب التضامن',
-    phone1: '777-277-990', phone2: '779-504-646',
-    logo: '', footer: 'شكراً لتعاملكم معنا',
+    businessName: '',
+    address: '',
+    phones: [],
+    logo: '', footer: '',
     themePrimary: null, themeSecondary: null
   },
   unsubs: [],
@@ -211,8 +191,15 @@ auth.onAuthStateChanged(user => {
     state.user = user;
     $('#loginScreen').classList.add('hidden');
     $('#app').classList.remove('hidden');
-    $('#userName').textContent = user.displayName || user.email;
-    $('#userPhoto').src = user.photoURL || 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23cbd5e1"%3E%3Cpath d="M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/%3E%3C/svg%3E';
+
+    const userName = user.displayName || user.email;
+    const userPhotoSrc = user.photoURL || 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23cbd5e1"%3E%3Cpath d="M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/%3E%3C/svg%3E';
+
+    $('#userName').textContent = userName;
+    $('#userNameSidebar').textContent = userName;
+    $('#userPhoto').src = userPhotoSrc;
+    $('#userPhotoTop').src = userPhotoSrc;
+
     loadData();
     showSection('dashboard');
   } else {
@@ -232,9 +219,7 @@ function loadData() {
   COLLECTIONS.forEach(col => {
     const unsub = userCol(col).onSnapshot(
       snap => {
-        state.data[col] = snap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .filter(x => !x.deleted);
+        state.data[col] = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => !x.deleted);
         renderSection();
       },
       err => console.error(`Error loading ${col}:`, err)
@@ -245,8 +230,6 @@ function loadData() {
   const settingsUnsub = userCol('settings').doc('business').onSnapshot(snap => {
     if (snap.exists) {
       state.settings = { ...state.settings, ...snap.data() };
-
-      // 🎨 تطبيق ألوان الشعار إن وُجدت
       if (state.settings.themePrimary && state.settings.themeSecondary) {
         applyThemeColors(state.settings.themePrimary, state.settings.themeSecondary);
       } else {
@@ -255,6 +238,8 @@ function loadData() {
     } else {
       applyDefaultTheme();
     }
+    const bn = document.getElementById('brandName');
+    if (bn) bn.textContent = state.settings.businessName || 'المحاسبة';
     renderSection();
   }, err => {
     console.warn('Settings load error:', err);
@@ -291,13 +276,6 @@ function showSection(name) {
   state.section = name;
   state.filters = {};
   $$('.nav a').forEach(a => a.classList.toggle('active', a.dataset.section === name));
-  const titles = {
-    dashboard:'لوحة التحكم', journal:'القيود اليومية', sales:'فواتير البيع',
-    purchases:'فواتير الشراء', customers:'العملاء والموردون', items:'الأصناف والمخزون',
-    employees:'الموظفون', advances:'سلف الموظفين', salaries:'الرواتب',
-    receipts:'سندات القبض', payments:'سندات الصرف', reports:'التقارير', settings:'الإعدادات'
-  };
-  $('#sectionTitle').textContent = titles[name] || '';
   renderSection();
   $('#sidebar').classList.remove('open');
 }
@@ -319,17 +297,11 @@ function customerBalance(id) {
   const c = state.data.customers.find(x => x.id === id);
   if (!c) return 0;
   const opening = Number(c.openingBalance) || 0;
-  const salesRemaining = state.data.sales.filter(s => s.customerId === id)
-    .reduce((s, x) => s + (Number(x.remaining) || 0), 0);
-  const receipts = state.data.receipts.filter(r => r.customerId === id)
-    .reduce((s, x) => s + (Number(x.amount) || 0), 0);
-  const purchasesRemaining = state.data.purchases.filter(p => p.supplierId === id)
-    .reduce((s, x) => s + (Number(x.remaining) || 0), 0);
-  const payments = state.data.payments.filter(p => p.partyId === id)
-    .reduce((s, x) => s + (Number(x.amount) || 0), 0);
-  const journalPayments = state.data.journal
-    .filter(j => j.type === 'customer' && j.partyId === id)
-    .reduce((s, x) => s + (Number(x.amount) || 0), 0);
+  const salesRemaining = state.data.sales.filter(s => s.customerId === id).reduce((s, x) => s + (Number(x.remaining) || 0), 0);
+  const receipts = state.data.receipts.filter(r => r.customerId === id).reduce((s, x) => s + (Number(x.amount) || 0), 0);
+  const purchasesRemaining = state.data.purchases.filter(p => p.supplierId === id).reduce((s, x) => s + (Number(x.remaining) || 0), 0);
+  const payments = state.data.payments.filter(p => p.partyId === id).reduce((s, x) => s + (Number(x.amount) || 0), 0);
+  const journalPayments = state.data.journal.filter(j => j.type === 'customer' && j.partyId === id).reduce((s, x) => s + (Number(x.amount) || 0), 0);
   return opening + salesRemaining - receipts - purchasesRemaining + payments - journalPayments;
 }
 
@@ -337,12 +309,8 @@ function employeeMonthData(empId, month) {
   const emp = state.data.employees.find(e => e.id === empId);
   if (!emp) return { total:0, advances:0, paid:0, remaining:0 };
   const total = (Number(emp.basicSalary) || 0) + (Number(emp.allowances) || 0);
-  const advances = state.data.advances
-    .filter(a => a.employeeId === empId && (a.date || '').startsWith(month))
-    .reduce((s, x) => s + (Number(x.amount) || 0), 0);
-  const paid = state.data.salaries
-    .filter(s => s.employeeId === empId && s.month === month)
-    .reduce((s, x) => s + (Number(x.net) || 0), 0);
+  const advances = state.data.advances.filter(a => a.employeeId === empId && (a.date || '').startsWith(month)).reduce((s, x) => s + (Number(x.amount) || 0), 0);
+  const paid = state.data.salaries.filter(s => s.employeeId === empId && s.month === month).reduce((s, x) => s + (Number(x.net) || 0), 0);
   return { total, advances, paid, remaining: total - advances - paid };
 }
 
@@ -359,10 +327,11 @@ function closeModal() {
 $('#modalClose').addEventListener('click', closeModal);
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-/* ===================== Print Helpers ===================== */
+/* ===================== Print Header ===================== */
 function printHeaderHtml(docTitle) {
   const s = state.settings;
-  const phones = [s.phone1, s.phone2].filter(Boolean).join(' / ');
+  const phonesList = Array.isArray(s.phones) ? s.phones : [];
+  const phones = phonesList.filter(Boolean).join(' / ');
   return `
     <div class="print-header">
       ${s.logo 
@@ -383,14 +352,15 @@ function printFooterHtml() {
   return `<div class="print-footer">${esc(s.footer)}</div>`;
 }
 
+/* ===================== PDF Export ===================== */
 function exportPDF(docTitle, contentHTML, filename) {
   if (typeof html2pdf === 'undefined') {
-    alert('⚠️ مكتبة PDF لم تُحمّل. تحقق من الإنترنت وأعد تحميل الصفحة.');
+    alert('⚠️ مكتبة PDF لم تُحمّل');
     return;
   }
   const s = state.settings;
-  const primary = s.themePrimary ? rgbToHex(s.themePrimary) : '#1e3a8a';
-  const secondary = s.themeSecondary ? rgbToHex(s.themeSecondary) : '#0ea5e9';
+  const primary = s.themePrimary ? rgbToHex(s.themePrimary) : '#1a3b5c';
+  const secondary = s.themeSecondary ? rgbToHex(s.themeSecondary) : '#4a9eff';
   const primaryPale = s.themePrimary ? rgbToHex(adjustColor(s.themePrimary, 94)) : '#eff6ff';
   const secondarySoft = s.themeSecondary ? rgbToHex(adjustColor(s.themeSecondary, 88)) : '#e0f2fe';
 
@@ -416,12 +386,6 @@ function exportPDF(docTitle, contentHTML, filename) {
       .print-notes{margin-top:10px;padding:8px;background:#fef3c7;border-right:3px solid #f59e0b;border-radius:3px;font-size:11px;}
       .voucher-box{margin-top:15px;padding:12px;border:1px solid #cbd5e1;background:#fafafa;font-size:12px;line-height:1.9;}
       .signatures{margin-top:35px;display:flex;justify-content:space-between;font-size:11px;}
-      .badge{display:inline-block;padding:2px 6px;border-radius:12px;font-size:9px;font-weight:600;}
-      .badge-green{background:#dcfce7;color:#15803d;}
-      .badge-red{background:#fee2e2;color:#b91c1c;}
-      .badge-orange{background:#fef3c7;color:#b45309;}
-      .badge-blue{background:${primaryPale};color:${primary};}
-      .badge-gray{background:#e2e8f0;color:#475569;}
     </style>
     ${printHeaderHtml(docTitle)}
     ${contentHTML}
@@ -444,44 +408,220 @@ function exportPDF(docTitle, contentHTML, filename) {
 function renderDashboard(c) {
   const sales = state.data.sales;
   const purchases = state.data.purchases;
+  const journal = state.data.journal;
+  const customers = state.data.customers;
+  const items = state.data.items;
+  const employees = state.data.employees;
+
   const totalSales = sales.reduce((s, x) => s + (Number(x.total) || 0), 0);
   const totalPurchases = purchases.reduce((s, x) => s + (Number(x.total) || 0), 0);
-  const totalDebts = state.data.customers.reduce((s, cu) => {
+  const totalExpenses = state.data.payments.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+  const totalReceipts = state.data.receipts.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+  const totalDebts = customers.reduce((s, cu) => {
     const b = customerBalance(cu.id);
     return s + (b > 0 ? b : 0);
   }, 0);
-  const totalOwed = state.data.customers.reduce((s, cu) => {
+  const totalOwed = customers.reduce((s, cu) => {
     const b = customerBalance(cu.id);
     return s + (b < 0 ? -b : 0);
   }, 0);
-  const totalCash = sales.reduce((s, x) => s + (Number(x.paid) || 0), 0);
-  const lowStock = state.data.items.filter(i => Number(i.quantity) <= Number(i.minQuantity || 0)).length;
-  const todayJournal = state.data.journal.filter(j => j.date === today()).length;
+  const lowStock = items.filter(i => Number(i.quantity) <= Number(i.minQuantity || 0)).length;
+  const todayJournal = journal.filter(j => j.date === today());
+
+  const recentSales = [...sales].sort((a,b)=>b.createdAt-a.createdAt).slice(0, 5);
+  const topCustomers = customers.slice(0, 6);
+  const debtorsCount = customers.filter(cu => customerBalance(cu.id) > 0).length;
+  const creditorsCount = customers.filter(cu => customerBalance(cu.id) < 0).length;
+
+  const userName = (state.user?.displayName || 'المستخدم').split(' ')[0];
 
   c.innerHTML = `
-    <div class="stats-grid">
-      <div class="stat-card green"><div class="stat-label">إجمالي المبيعات</div><div class="stat-value">${fmt(totalSales)}</div></div>
-      <div class="stat-card orange"><div class="stat-label">إجمالي المشتريات</div><div class="stat-value">${fmt(totalPurchases)}</div></div>
-      <div class="stat-card red"><div class="stat-label">ديون لنا (مدينون)</div><div class="stat-value">${fmt(totalDebts)}</div></div>
-      <div class="stat-card purple"><div class="stat-label">ديون علينا (دائنون)</div><div class="stat-value">${fmt(totalOwed)}</div></div>
-      <div class="stat-card"><div class="stat-label">النقد المُحصّل</div><div class="stat-value">${fmt(totalCash)}</div></div>
-      <div class="stat-card"><div class="stat-label">قيود اليوم</div><div class="stat-value">${todayJournal}</div></div>
-      <div class="stat-card"><div class="stat-label">عدد الأصناف</div><div class="stat-value">${state.data.items.length}</div></div>
-      <div class="stat-card ${lowStock ? 'red' : 'green'}"><div class="stat-label">تحت الحد الأدنى</div><div class="stat-value">${lowStock}</div></div>
+    <div class="welcome-banner">
+      <div class="welcome-content">
+        <h2>مرحباً بك ${esc(userName)} 👋</h2>
+        <p>إليك ملخص سريع لنشاط مؤسستك اليوم</p>
+      </div>
+      <div class="welcome-icon">📊</div>
     </div>
 
-    <div class="card">
-      <h3>🧾 أحدث فواتير البيع</h3>
-      ${sales.length ? `
-      <div class="table-wrap"><table>
-        <thead><tr><th>الرقم</th><th>التاريخ</th><th>العميل</th><th>النوع</th><th>الإجمالي</th><th>المدفوع</th><th>المتبقي</th></tr></thead>
-        <tbody>${[...sales].sort((a,b)=>b.createdAt-a.createdAt).slice(0,5).map(s => `
-          <tr>
-            <td>${esc(s.number)}</td><td>${esc(s.date)}</td><td>${esc(s.customerName||'-')}</td>
-            <td><span class="badge ${s.type==='cash'?'badge-green':'badge-orange'}">${s.type==='cash'?'نقدي':'آجل'}</span></td>
-            <td>${fmt(s.total)}</td><td>${fmt(s.paid)}</td><td>${fmt(s.remaining)}</td>
-          </tr>`).join('')}</tbody>
-      </table></div>` : `<div class="empty-state"><div class="icon">📭</div>لا توجد فواتير بعد</div>`}
+    <div class="stats-grid stats-grid-4">
+      <div class="stat-card">
+        <div class="stat-icon green">🧾</div>
+        <div class="stat-body">
+          <div class="stat-label">إجمالي المبيعات</div>
+          <div class="stat-value small">${fmt(totalSales)}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue">📥</div>
+        <div class="stat-body">
+          <div class="stat-label">إجمالي المشتريات</div>
+          <div class="stat-value small">${fmt(totalPurchases)}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon red">📤</div>
+        <div class="stat-body">
+          <div class="stat-label">المصروفات</div>
+          <div class="stat-value small">${fmt(totalExpenses)}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon orange">📨</div>
+        <div class="stat-body">
+          <div class="stat-label">المقبوضات</div>
+          <div class="stat-value small">${fmt(totalReceipts)}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-grid stats-grid-4">
+      <div class="stat-card">
+        <div class="stat-icon purple">👥</div>
+        <div class="stat-body">
+          <div class="stat-label">عدد العملاء والموردين</div>
+          <div class="stat-value">${customers.length}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon primary">👨‍💼</div>
+        <div class="stat-body">
+          <div class="stat-label">عدد الموظفين</div>
+          <div class="stat-value">${employees.length}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon orange">⚠️</div>
+        <div class="stat-body">
+          <div class="stat-label">أصناف تحت الحد الأدنى</div>
+          <div class="stat-value">${lowStock}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue">💰</div>
+        <div class="stat-body">
+          <div class="stat-label">صافي الديون</div>
+          <div class="stat-value small">${fmt(totalDebts - totalOwed)}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dashboard-grid">
+      <div class="card">
+        <div class="card-header">
+          <h3>🧾 أحدث فواتير البيع</h3>
+          <a class="card-action" onclick="showSection('sales')">عرض الكل ←</a>
+        </div>
+        ${recentSales.length ? `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>الرقم</th><th>التاريخ</th><th>العميل</th><th>النوع</th><th>الإجمالي</th><th>المتبقي</th></tr></thead>
+            <tbody>${recentSales.map(s => `
+              <tr>
+                <td><strong>${esc(s.number)}</strong></td>
+                <td>${esc(s.date)}</td>
+                <td>${esc(s.customerName||'-')}</td>
+                <td><span class="badge ${s.type==='cash'?'badge-green':'badge-orange'}">${s.type==='cash'?'نقدي':'آجل'}</span></td>
+                <td>${fmt(s.total)}</td>
+                <td>${fmt(s.remaining)}</td>
+              </tr>`).join('')}</tbody>
+          </table>
+        </div>` : `<div class="empty-state"><div class="icon">📭</div><p>لا توجد فواتير بعد</p></div>`}
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>⚡ إجراءات سريعة</h3></div>
+        <div class="quick-actions">
+          <div class="quick-action" onclick="openSaleForm()">
+            <div class="qa-icon green">🧾</div>
+            <div class="qa-label">فاتورة بيع</div>
+          </div>
+          <div class="quick-action" onclick="openPurchaseForm()">
+            <div class="qa-icon blue">📥</div>
+            <div class="qa-label">فاتورة شراء</div>
+          </div>
+          <div class="quick-action" onclick="openCustomerForm()">
+            <div class="qa-icon purple">👤</div>
+            <div class="qa-label">عميل جديد</div>
+          </div>
+          <div class="quick-action" onclick="openItemForm()">
+            <div class="qa-icon orange">📦</div>
+            <div class="qa-label">صنف جديد</div>
+          </div>
+          <div class="quick-action" onclick="openReceiptForm()">
+            <div class="qa-icon primary">📨</div>
+            <div class="qa-label">سند قبض</div>
+          </div>
+          <div class="quick-action" onclick="openPaymentForm()">
+            <div class="qa-icon red">📤</div>
+            <div class="qa-label">سند صرف</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dashboard-grid equal">
+      <div class="card">
+        <div class="card-header"><h3>⚠️ تنبيهات النظام</h3></div>
+        <div class="alerts-list">
+          <div class="alert-item" onclick="showSection('items')">
+            <div class="alert-icon orange">📦</div>
+            <div class="alert-body">
+              <div class="alert-title">أصناف تحت الحد الأدنى</div>
+              <div class="alert-sub">تحتاج إعادة تعبئة</div>
+            </div>
+            <div class="alert-count">${lowStock}</div>
+          </div>
+          <div class="alert-item" onclick="showSection('customers')">
+            <div class="alert-icon red">💸</div>
+            <div class="alert-body">
+              <div class="alert-title">مدينون لنا</div>
+              <div class="alert-sub">عملاء عليهم أرصدة</div>
+            </div>
+            <div class="alert-count">${debtorsCount}</div>
+          </div>
+          <div class="alert-item" onclick="showSection('customers')">
+            <div class="alert-icon blue">💳</div>
+            <div class="alert-body">
+              <div class="alert-title">دائنون (لنا عندهم)</div>
+              <div class="alert-sub">موردون أو عملاء</div>
+            </div>
+            <div class="alert-count">${creditorsCount}</div>
+          </div>
+          <div class="alert-item" onclick="showSection('journal')">
+            <div class="alert-icon green">📔</div>
+            <div class="alert-body">
+              <div class="alert-title">قيود اليوم</div>
+              <div class="alert-sub">تم تسجيلها اليوم</div>
+            </div>
+            <div class="alert-count">${todayJournal.length}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>👥 أرصدة العملاء والموردين</h3>
+          <a class="card-action" onclick="showSection('customers')">عرض الكل ←</a>
+        </div>
+        ${topCustomers.length ? `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>الاسم</th><th>الهاتف</th><th>الرصيد</th><th>الحالة</th></tr></thead>
+            <tbody>${topCustomers.map(cu => {
+              const bal = customerBalance(cu.id);
+              const label = bal > 0 ? 'مدين لنا' : bal < 0 ? 'دائن' : 'متعادل';
+              const cls = bal > 0 ? 'badge-red' : bal < 0 ? 'badge-green' : 'badge-gray';
+              return `<tr>
+                <td><strong>${esc(cu.name)}</strong></td>
+                <td>${esc(cu.phone||'-')}</td>
+                <td><span class="badge ${cls}">${fmt(Math.abs(bal))}</span></td>
+                <td>${label}</td>
+              </tr>`;
+            }).join('')}</tbody>
+          </table>
+        </div>` : `<div class="empty-state"><div class="icon">👥</div><p>لا يوجد عملاء بعد</p></div>`}
+      </div>
     </div>
   `;
 }
@@ -502,6 +642,13 @@ function renderJournal(c) {
   const net = income + customerPay - expense - employeeAdv;
 
   c.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2>📔 القيود اليومية</h2>
+        <div class="page-subtitle">تسجيل الإيرادات والمصروفات والسلف اليومية</div>
+      </div>
+    </div>
+
     <div class="toolbar">
       <div class="toolbar-left">
         <label style="font-size:13px;font-weight:700;">من:</label>
@@ -516,17 +663,42 @@ function renderJournal(c) {
       </div>
     </div>
 
-    <div class="stats-grid">
-      <div class="stat-card green"><div class="stat-label">الإيرادات</div><div class="stat-value">${fmt(income)}</div></div>
-      <div class="stat-card red"><div class="stat-label">المصروفات</div><div class="stat-value">${fmt(expense)}</div></div>
-      <div class="stat-card purple"><div class="stat-label">دفعات العملاء</div><div class="stat-value">${fmt(customerPay)}</div></div>
-      <div class="stat-card orange"><div class="stat-label">سلف الموظفين</div><div class="stat-value">${fmt(employeeAdv)}</div></div>
-      <div class="stat-card ${net >= 0 ? 'green' : 'red'}"><div class="stat-label">صافي الفترة</div><div class="stat-value">${fmt(net)}</div></div>
-      <div class="stat-card"><div class="stat-label">عدد القيود</div><div class="stat-value">${list.length}</div></div>
+    <div class="stats-grid stats-grid-4">
+      <div class="stat-card">
+        <div class="stat-icon green">💵</div>
+        <div class="stat-body">
+          <div class="stat-label">الإيرادات</div>
+          <div class="stat-value small">${fmt(income)}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon red">💸</div>
+        <div class="stat-body">
+          <div class="stat-label">المصروفات</div>
+          <div class="stat-value small">${fmt(expense)}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue">👤</div>
+        <div class="stat-body">
+          <div class="stat-label">دفعات العملاء</div>
+          <div class="stat-value small">${fmt(customerPay)}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon orange">🧑‍💼</div>
+        <div class="stat-body">
+          <div class="stat-label">سلف الموظفين</div>
+          <div class="stat-value small">${fmt(employeeAdv)}</div>
+        </div>
+      </div>
     </div>
 
     <div class="card">
-      <h3>📔 القيود اليومية</h3>
+      <div class="card-header">
+        <h3>📋 قائمة القيود ${from || to ? `(${from || 'البداية'} → ${to || 'اليوم'})` : ''}</h3>
+        <span class="badge ${net >= 0 ? 'badge-green' : 'badge-red'}">الصافي: ${fmt(net)}</span>
+      </div>
       ${list.length ? `
       <div class="table-wrap"><table>
         <thead><tr>
@@ -556,7 +728,7 @@ function renderJournal(c) {
             </td>
           </tr>`;
         }).join('')}</tbody>
-      </table></div>` : `<div class="empty-state"><div class="icon">📔</div>لا توجد قيود</div>`}
+      </table></div>` : `<div class="empty-state"><div class="icon">📔</div><p>لا توجد قيود — اضغط "+ قيد جديد" للبدء</p></div>`}
     </div>
   `;
 }
@@ -683,18 +855,8 @@ function buildJournalEntryContent(j) {
     </div>
     <table>
       <thead><tr><th>البيان / الوصف</th><th>المبلغ</th></tr></thead>
-      <tbody>
-        <tr>
-          <td>${esc(j.description)}</td>
-          <td><strong>${fmt(j.amount)}</strong></td>
-        </tr>
-      </tbody>
-      <tfoot>
-        <tr style="background:#f0f0f0;font-weight:bold;">
-          <td>الإجمالي</td>
-          <td>${fmt(j.amount)}</td>
-        </tr>
-      </tfoot>
+      <tbody><tr><td>${esc(j.description)}</td><td><strong>${fmt(j.amount)}</strong></td></tr></tbody>
+      <tfoot><tr style="background:#f0f0f0;font-weight:bold;"><td>الإجمالي</td><td>${fmt(j.amount)}</td></tr></tfoot>
     </table>
     ${j.notes ? `<div class="print-notes"><strong>ملاحظات:</strong> ${esc(j.notes)}</div>` : ''}
     <div class="voucher-box">
@@ -792,6 +954,13 @@ function renderSales(c) {
   const rem = list.reduce((s,x)=>s+(Number(x.remaining)||0),0);
 
   c.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2>🧾 فواتير البيع</h2>
+        <div class="page-subtitle">إدارة كل فواتير البيع الصادرة</div>
+      </div>
+    </div>
+
     <div class="toolbar">
       <div class="toolbar-left">
         <label style="font-size:13px;font-weight:700;">من:</label>
@@ -811,7 +980,9 @@ function renderSales(c) {
     </div>
 
     <div class="card">
-      <h3>الإجمالي: ${fmt(total)} — المدفوع: ${fmt(paid)} — المتبقي: ${fmt(rem)}</h3>
+      <div class="card-header">
+        <h3>الإجمالي: ${fmt(total)} — المدفوع: ${fmt(paid)} — المتبقي: ${fmt(rem)}</h3>
+      </div>
       ${list.length ? `
       <div class="table-wrap"><table>
         <thead><tr><th>الرقم</th><th>التاريخ</th><th>العميل</th><th>النوع</th><th>الإجمالي</th><th>المدفوع</th><th>المتبقي</th><th>إجراءات</th></tr></thead>
@@ -830,7 +1001,7 @@ function renderSales(c) {
               <button class="btn btn-danger btn-sm" onclick="deleteSale('${s.id}')">🗑️</button>
             </td>
           </tr>`).join('')}</tbody>
-      </table></div>` : `<div class="empty-state"><div class="icon">🧾</div>لا توجد فواتير بيع</div>`}
+      </table></div>` : `<div class="empty-state"><div class="icon">🧾</div><p>لا توجد فواتير بيع</p></div>`}
     </div>
   `;
 }
@@ -921,7 +1092,7 @@ function openSaleForm() {
       <div id="saleItemsContainer"></div>
       ${items.length 
         ? `<button type="button" class="btn btn-secondary btn-sm" onclick="addSaleItemRow()">+ إضافة صنف</button>` 
-        : `<div style="padding:12px;background:var(--warning-soft);border-radius:8px;color:var(--warning);font-size:13px;font-weight:700;">⚠️ لا توجد أصناف في المخزون. أضف أصنافًا أولًا من فاتورة شراء.</div>`}
+        : `<div style="padding:12px;background:var(--orange-soft);border-radius:8px;color:var(--orange);font-size:13px;font-weight:700;">⚠️ لا توجد أصناف في المخزون. أضف أصنافًا أولًا من فاتورة شراء.</div>`}
     </div>
     <div class="form-row-3">
       <div class="form-group"><label>الخصم</label>
@@ -1103,6 +1274,13 @@ function renderPurchases(c) {
   const rem = list.reduce((s,x)=>s+(Number(x.remaining)||0),0);
 
   c.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2>📥 فواتير الشراء</h2>
+        <div class="page-subtitle">إدارة فواتير الشراء الواردة</div>
+      </div>
+    </div>
+
     <div class="toolbar">
       <div class="toolbar-left">
         <label style="font-size:13px;font-weight:700;">من:</label>
@@ -1122,7 +1300,9 @@ function renderPurchases(c) {
     </div>
 
     <div class="card">
-      <h3>الإجمالي: ${fmt(total)} — المدفوع: ${fmt(paid)} — المتبقي: ${fmt(rem)}</h3>
+      <div class="card-header">
+        <h3>الإجمالي: ${fmt(total)} — المدفوع: ${fmt(paid)} — المتبقي: ${fmt(rem)}</h3>
+      </div>
       ${list.length ? `
       <div class="table-wrap"><table>
         <thead><tr><th>الرقم</th><th>التاريخ</th><th>المورد</th><th>الإجمالي</th><th>المدفوع</th><th>المتبقي</th><th>إجراءات</th></tr></thead>
@@ -1137,7 +1317,7 @@ function renderPurchases(c) {
               <button class="btn btn-danger btn-sm" onclick="deletePurchase('${p.id}')">🗑️</button>
             </td>
           </tr>`).join('')}</tbody>
-      </table></div>` : `<div class="empty-state"><div class="icon">📥</div>لا توجد فواتير شراء</div>`}
+      </table></div>` : `<div class="empty-state"><div class="icon">📥</div><p>لا توجد فواتير شراء</p></div>`}
     </div>
   `;
 }
@@ -1406,6 +1586,13 @@ function renderCustomers(c) {
   const list = state.data.customers.filter(x => !q || (x.name||'').toLowerCase().includes(q));
 
   c.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2>👥 العملاء والموردون</h2>
+        <div class="page-subtitle">إدارة الأطراف والأرصدة</div>
+      </div>
+    </div>
+
     <div class="toolbar">
       <div class="toolbar-left">
         <input class="search-input" placeholder="🔍 بحث بالاسم..." value="${esc(state.filters.customers||'')}" oninput="setFilter('customers',this.value)">
@@ -1420,7 +1607,6 @@ function renderCustomers(c) {
     </div>
 
     <div class="card">
-      <h3>👥 العملاء والموردون</h3>
       ${list.length ? `
       <div class="table-wrap"><table>
         <thead><tr>
@@ -1458,7 +1644,7 @@ function renderCustomers(c) {
             </td>
           </tr>`;
         }).join('')}</tbody>
-      </table></div>` : `<div class="empty-state"><div class="icon">👥</div>لا توجد بيانات</div>`}
+      </table></div>` : `<div class="empty-state"><div class="icon">👥</div><p>لا توجد بيانات</p></div>`}
     </div>
   `;
 }
@@ -1594,6 +1780,13 @@ function renderItems(c) {
   const list = state.data.items.filter(x => !q || (x.name||'').toLowerCase().includes(q) || (x.code||'').toLowerCase().includes(q));
 
   c.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2>📦 الأصناف والمخزون</h2>
+        <div class="page-subtitle">إدارة الأصناف والكميات</div>
+      </div>
+    </div>
+
     <div class="toolbar">
       <div class="toolbar-left">
         <input class="search-input" placeholder="🔍 بحث..." value="${esc(state.filters.items||'')}" oninput="setFilter('items',this.value)">
@@ -1608,7 +1801,6 @@ function renderItems(c) {
     </div>
 
     <div class="card">
-      <h3>📦 الأصناف والمخزون</h3>
       ${list.length ? `
       <div class="table-wrap"><table>
         <thead><tr><th>الكود</th><th>الاسم</th><th>الوحدة</th><th>سعر التكلفة</th><th>سعر البيع</th><th>الكمية</th><th>الحد الأدنى</th><th>إجراءات</th></tr></thead>
@@ -1628,7 +1820,7 @@ function renderItems(c) {
             </td>
           </tr>`;
         }).join('')}</tbody>
-      </table></div>` : `<div class="empty-state"><div class="icon">📦</div>لا توجد أصناف</div>`}
+      </table></div>` : `<div class="empty-state"><div class="icon">📦</div><p>لا توجد أصناف</p></div>`}
     </div>
   `;
 }
@@ -1727,6 +1919,13 @@ function renderEmployees(c) {
   const list = state.data.employees.filter(x => !q || (x.name||'').toLowerCase().includes(q));
 
   c.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2>👨‍💼 الموظفون</h2>
+        <div class="page-subtitle">إدارة بيانات الموظفين والرواتب</div>
+      </div>
+    </div>
+
     <div class="toolbar">
       <div class="toolbar-left">
         <input class="search-input" placeholder="🔍 بحث..." value="${esc(state.filters.employees||'')}" oninput="setFilter('employees',this.value)">
@@ -1757,7 +1956,7 @@ function renderEmployees(c) {
               <button class="btn btn-danger btn-sm" onclick="softDelete('employees','${e.id}')">🗑️</button>
             </td>
           </tr>`).join('')}</tbody>
-      </table></div>` : `<div class="empty-state"><div class="icon">👨‍💼</div>لا يوجد موظفون</div>`}
+      </table></div>` : `<div class="empty-state"><div class="icon">👨‍💼</div><p>لا يوجد موظفون</p></div>`}
     </div>
   `;
 }
@@ -1859,6 +2058,13 @@ function renderAdvances(c) {
   const list = [...state.data.advances].filter(a => inRange(a.date)).sort((a,b)=>b.createdAt-a.createdAt);
 
   c.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2>💵 سلف الموظفين</h2>
+        <div class="page-subtitle">إدارة السلف الممنوحة للموظفين</div>
+      </div>
+    </div>
+
     <div class="toolbar">
       <div class="toolbar-left">
         <label style="font-size:13px;font-weight:700;">من:</label>
@@ -1892,7 +2098,7 @@ function renderAdvances(c) {
               <button class="btn btn-danger btn-sm" onclick="softDelete('advances','${a.id}')">🗑️</button>
             </td>
           </tr>`).join('')}</tbody>
-      </table></div>` : `<div class="empty-state"><div class="icon">💵</div>لا توجد سلف</div>`}
+      </table></div>` : `<div class="empty-state"><div class="icon">💵</div><p>لا توجد سلف</p></div>`}
     </div>
   `;
 }
@@ -2018,6 +2224,13 @@ function renderSalaries(c) {
   const emps = state.data.employees;
 
   c.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2>💼 الرواتب</h2>
+        <div class="page-subtitle">إدارة رواتب الموظفين الشهرية</div>
+      </div>
+    </div>
+
     <div class="toolbar">
       <div class="toolbar-left">
         <label style="font-size:13px;font-weight:700;">الشهر:</label>
@@ -2032,7 +2245,9 @@ function renderSalaries(c) {
     </div>
 
     <div class="card">
-      <h3>رواتب شهر ${month}</h3>
+      <div class="card-header">
+        <h3>رواتب شهر ${month}</h3>
+      </div>
       ${emps.length ? `
       <div class="table-wrap"><table>
         <thead><tr><th>الموظف</th><th>الأساسي</th><th>البدلات</th><th>الإجمالي</th><th>السلف</th><th>المدفوع</th><th>المتبقي</th><th>إجراءات</th></tr></thead>
@@ -2049,7 +2264,7 @@ function renderSalaries(c) {
             <td><button class="btn btn-success btn-sm" onclick="openSalaryForm('${e.id}','${month}')">💼 صرف</button></td>
           </tr>`;
         }).join('')}</tbody>
-      </table></div>` : `<div class="empty-state"><div class="icon">💼</div>لا يوجد موظفون</div>`}
+      </table></div>` : `<div class="empty-state"><div class="icon">💼</div><p>لا يوجد موظفون</p></div>`}
     </div>
   `;
 }
@@ -2153,6 +2368,13 @@ function renderReceipts(c) {
   const list = [...state.data.receipts].filter(r => inRange(r.date)).sort((a,b)=>b.createdAt-a.createdAt);
 
   c.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2>📨 سندات القبض</h2>
+        <div class="page-subtitle">سندات استلام المبالغ من العملاء</div>
+      </div>
+    </div>
+
     <div class="toolbar">
       <div class="toolbar-left">
         <label style="font-size:13px;font-weight:700;">من:</label>
@@ -2185,7 +2407,7 @@ function renderReceipts(c) {
               <button class="btn btn-danger btn-sm" onclick="softDelete('receipts','${r.id}')">🗑️</button>
             </td>
           </tr>`).join('')}</tbody>
-      </table></div>` : `<div class="empty-state"><div class="icon">📨</div>لا توجد سندات</div>`}
+      </table></div>` : `<div class="empty-state"><div class="icon">📨</div><p>لا توجد سندات</p></div>`}
     </div>
   `;
 }
@@ -2334,6 +2556,13 @@ function renderPayments(c) {
   const list = [...state.data.payments].filter(p => inRange(p.date)).sort((a,b)=>b.createdAt-a.createdAt);
 
   c.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2>📤 سندات الصرف</h2>
+        <div class="page-subtitle">سندات صرف المبالغ للمستفيدين</div>
+      </div>
+    </div>
+
     <div class="toolbar">
       <div class="toolbar-left">
         <label style="font-size:13px;font-weight:700;">من:</label>
@@ -2366,7 +2595,7 @@ function renderPayments(c) {
               <button class="btn btn-danger btn-sm" onclick="softDelete('payments','${p.id}')">🗑️</button>
             </td>
           </tr>`).join('')}</tbody>
-      </table></div>` : `<div class="empty-state"><div class="icon">📤</div>لا توجد سندات صرف</div>`}
+      </table></div>` : `<div class="empty-state"><div class="icon">📤</div><p>لا توجد سندات صرف</p></div>`}
     </div>
   `;
 }
@@ -2523,6 +2752,13 @@ function renderReports(c) {
   const sum = (arr, k) => arr.reduce((s, x) => s + (Number(x[k]) || 0), 0);
 
   c.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2>📈 التقارير</h2>
+        <div class="page-subtitle">تقارير شاملة عن أداء المؤسسة</div>
+      </div>
+    </div>
+
     <div class="toolbar">
       <div class="toolbar-left">
         <label style="font-size:13px;font-weight:700;">من:</label>
@@ -2537,18 +2773,72 @@ function renderReports(c) {
       </div>
     </div>
 
-    <div class="stats-grid">
-      <div class="stat-card green"><div class="stat-label">المبيعات (${sales.length})</div><div class="stat-value small">${fmt(sum(sales,'total'))}</div></div>
-      <div class="stat-card orange"><div class="stat-label">المشتريات (${purchases.length})</div><div class="stat-value small">${fmt(sum(purchases,'total'))}</div></div>
-      <div class="stat-card purple"><div class="stat-label">سندات القبض (${receipts.length})</div><div class="stat-value small">${fmt(sum(receipts,'amount'))}</div></div>
-      <div class="stat-card red"><div class="stat-label">سندات الصرف (${payments.length})</div><div class="stat-value small">${fmt(sum(payments,'amount'))}</div></div>
-      <div class="stat-card"><div class="stat-label">السلف (${advances.length})</div><div class="stat-value small">${fmt(sum(advances,'amount'))}</div></div>
-      <div class="stat-card"><div class="stat-label">الرواتب (${salaries.length})</div><div class="stat-value small">${fmt(sum(salaries,'net'))}</div></div>
-      <div class="stat-card"><div class="stat-label">القيود (${journal.length})</div><div class="stat-value small">${fmt(sum(journal,'amount'))}</div></div>
+    <div class="stats-grid stats-grid-4">
+      <div class="stat-card">
+        <div class="stat-icon green">🧾</div>
+        <div class="stat-body">
+          <div class="stat-label">المبيعات (${sales.length})</div>
+          <div class="stat-value small">${fmt(sum(sales,'total'))}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue">📥</div>
+        <div class="stat-body">
+          <div class="stat-label">المشتريات (${purchases.length})</div>
+          <div class="stat-value small">${fmt(sum(purchases,'total'))}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon red">📤</div>
+        <div class="stat-body">
+          <div class="stat-label">المصروفات (${payments.length})</div>
+          <div class="stat-value small">${fmt(sum(payments,'amount'))}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon orange">📨</div>
+        <div class="stat-body">
+          <div class="stat-label">المقبوضات (${receipts.length})</div>
+          <div class="stat-value small">${fmt(sum(receipts,'amount'))}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-grid stats-grid-4">
+      <div class="stat-card">
+        <div class="stat-icon purple">💵</div>
+        <div class="stat-body">
+          <div class="stat-label">السلف (${advances.length})</div>
+          <div class="stat-value small">${fmt(sum(advances,'amount'))}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon primary">💼</div>
+        <div class="stat-body">
+          <div class="stat-label">الرواتب (${salaries.length})</div>
+          <div class="stat-value small">${fmt(sum(salaries,'net'))}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue">📔</div>
+        <div class="stat-body">
+          <div class="stat-label">القيود (${journal.length})</div>
+          <div class="stat-value small">${fmt(sum(journal,'amount'))}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon orange">👥</div>
+        <div class="stat-body">
+          <div class="stat-label">العملاء والموردون</div>
+          <div class="stat-value">${state.data.customers.length}</div>
+        </div>
+      </div>
     </div>
 
     <div class="card">
-      <h3>👥 أرصدة العملاء والموردين</h3>
+      <div class="card-header">
+        <h3>👥 أرصدة العملاء والموردين</h3>
+      </div>
       <div class="table-wrap"><table>
         <thead><tr><th>الاسم</th><th>الهاتف</th><th>الرصيد</th><th>الحالة</th></tr></thead>
         <tbody>${state.data.customers.map(cu => {
@@ -2667,28 +2957,48 @@ function printFullReport() {
 /* ===================== SETTINGS ===================== */
 function renderSettings(c) {
   const s = state.settings;
+  const phonesList = (Array.isArray(s.phones) && s.phones.length) ? s.phones : [''];
+
   c.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2>⚙️ الإعدادات</h2>
+        <div class="page-subtitle">إعدادات المؤسسة والشعار</div>
+      </div>
+    </div>
+
     <div class="card">
-      <h3>⚙️ إعدادات المؤسسة</h3>
+      <div class="card-header"><h3>🏢 بيانات المؤسسة</h3></div>
       <div class="form-row">
-        <div class="form-group"><label>اسم المؤسسة *</label>
-          <input id="setName" value="${esc(s.businessName||'')}"></div>
+        <div class="form-group"><label>اسم المؤسسة</label>
+          <input id="setName" placeholder="اكتب اسم المؤسسة" value="${esc(s.businessName||'')}"></div>
         <div class="form-group"><label>العنوان</label>
-          <input id="setAddress" value="${esc(s.address||'')}"></div>
+          <input id="setAddress" placeholder="اكتب العنوان" value="${esc(s.address||'')}"></div>
       </div>
-      <div class="form-row">
-        <div class="form-group"><label>الهاتف الأول</label>
-          <input id="setPhone1" value="${esc(s.phone1||'')}"></div>
-        <div class="form-group"><label>الهاتف الثاني</label>
-          <input id="setPhone2" value="${esc(s.phone2||'')}"></div>
+
+      <div class="form-group">
+        <label style="display:flex;justify-content:space-between;align-items:center;">
+          <span>أرقام الهاتف</span>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="addPhoneField()">+ إضافة رقم</button>
+        </label>
+        <div id="phonesContainer">
+          ${phonesList.map((ph) => `
+            <div class="phone-row" style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+              <input type="tel" class="phone-input" placeholder="أدخل رقم الهاتف" value="${esc(ph||'')}">
+              <button type="button" class="btn btn-danger btn-sm" onclick="removePhoneField(this)" title="حذف">×</button>
+            </div>
+          `).join('')}
+        </div>
+        <small style="color:var(--muted);font-size:12px;">يمكنك إضافة أي عدد من الأرقام — تظهر جميعها في الفواتير</small>
       </div>
+
       <div class="form-group"><label>نص التذييل</label>
-        <input id="setFooter" value="${esc(s.footer||'')}"></div>
+        <input id="setFooter" placeholder="مثال: شكراً لتعاملكم معنا" value="${esc(s.footer||'')}"></div>
 
       <div class="form-group">
         <label>الشعار (Logo) — يتم استخراج الألوان تلقائيًا وتطبيقها على كل النظام</label>
         <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
-          <div style="width:120px;height:120px;border:2px dashed var(--sky);border-radius:12px;display:flex;align-items:center;justify-content:center;background:var(--sky-pale);overflow:hidden;">
+          <div style="width:120px;height:120px;border:2px dashed var(--accent);border-radius:12px;display:flex;align-items:center;justify-content:center;background:var(--primary-soft);overflow:hidden;">
             ${s.logo 
               ? `<img src="${s.logo}" style="width:100%;height:100%;object-fit:contain;">` 
               : `<span style="color:var(--muted);font-size:12px;">لا يوجد شعار</span>`}
@@ -2697,12 +3007,12 @@ function renderSettings(c) {
             <input type="file" id="logoFile" accept="image/*" style="display:none;" onchange="handleLogoUpload(event)">
             <button class="btn btn-primary" onclick="document.getElementById('logoFile').click()">📁 رفع شعار</button>
             ${s.logo ? `<button class="btn btn-danger" onclick="removeLogo()">🗑️ حذف الشعار</button>` : ''}
-            <small style="color:var(--muted);font-size:12px;">PNG شفافة، أقل من 500KB — سيتم استخراج الألوان تلقائيًا</small>
+            <small style="color:var(--muted);font-size:12px;">PNG شفافة، أقل من 500KB</small>
           </div>
         </div>
 
         ${s.themePrimary && s.themeSecondary ? `
-          <div style="margin-top:16px;padding:14px;background:var(--bg-2);border-radius:12px;border:1px solid var(--border);">
+          <div style="margin-top:16px;padding:14px;background:var(--bg);border-radius:12px;border:1px solid var(--border);">
             <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:10px;">🎨 الألوان المستخرجة من الشعار:</div>
             <div style="display:flex;gap:10px;flex-wrap:wrap;">
               <div style="display:flex;align-items:center;gap:8px;background:#fff;padding:8px 14px;border-radius:8px;border:1px solid var(--border);">
@@ -2719,46 +3029,55 @@ function renderSettings(c) {
       </div>
 
       <div class="form-actions">
-        <button class="btn btn-secondary" onclick="resetSettings()">استعادة الافتراضي</button>
+        <button class="btn btn-secondary" onclick="resetSettings()">مسح البيانات</button>
         <button class="btn btn-primary" onclick="saveSettings()">💾 حفظ الإعدادات</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <h3>📋 معاينة الطباعة</h3>
-      <div style="background:#fff;padding:20px;border:1px solid var(--border);border-radius:12px;max-width:700px;margin:0 auto;">
-        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--primary);padding-bottom:16px;margin-bottom:20px;">
-          ${s.logo 
-            ? `<img src="${s.logo}" style="height:80px;object-fit:contain;">`
-            : `<div style="width:80px;height:80px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:32px;font-weight:bold;">${esc((s.businessName||'؟').charAt(0))}</div>`}
-          <div style="text-align:left;">
-            <h2 style="margin:0 0 6px;color:var(--primary);">${esc(s.businessName||'اسم المؤسسة')}</h2>
-            ${s.address ? `<div style="font-size:13px;color:var(--muted);">📍 ${esc(s.address)}</div>` : ''}
-            ${(s.phone1||s.phone2) ? `<div style="font-size:13px;color:var(--muted);">📞 ${esc([s.phone1,s.phone2].filter(Boolean).join(' / '))}</div>` : ''}
-          </div>
-        </div>
-        <div style="text-align:center;font-size:20px;font-weight:bold;margin:20px 0;color:var(--primary);background:var(--primary-pale);padding:8px;border-radius:6px;">فاتورة</div>
-        <div style="font-size:12px;color:var(--muted);text-align:center;margin-top:30px;">${esc(s.footer||'')}</div>
       </div>
     </div>
   `;
 }
 
+/* ============ حقول الهواتف الديناميكية ============ */
+function addPhoneField() {
+  const container = document.getElementById('phonesContainer');
+  const row = document.createElement('div');
+  row.className = 'phone-row';
+  row.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;align-items:center;';
+  row.innerHTML = `
+    <input type="tel" class="phone-input" placeholder="أدخل رقم الهاتف" value="">
+    <button type="button" class="btn btn-danger btn-sm" onclick="removePhoneField(this)" title="حذف">×</button>
+  `;
+  container.appendChild(row);
+  row.querySelector('input').focus();
+}
+
+function removePhoneField(btn) {
+  const rows = document.querySelectorAll('.phone-row');
+  if (rows.length > 1) {
+    btn.closest('.phone-row').remove();
+  } else {
+    btn.closest('.phone-row').querySelector('input').value = '';
+  }
+}
+
 async function saveSettings() {
+  const phones = [...document.querySelectorAll('.phone-input')]
+    .map(inp => (inp.value || '').trim())
+    .filter(Boolean);
+
   const data = {
     businessName: readStr('#setName'),
     address: readStr('#setAddress'),
-    phone1: readStr('#setPhone1'),
-    phone2: readStr('#setPhone2'),
+    phones: phones,
     footer: readStr('#setFooter'),
     logo: state.settings.logo || '',
     themePrimary: state.settings.themePrimary || null,
     themeSecondary: state.settings.themeSecondary || null,
     updatedAt: Date.now()
   };
-  if (!data.businessName) { alert('اسم المؤسسة مطلوب'); return; }
   await userCol('settings').doc('business').set(data, { merge: true });
   state.settings = { ...state.settings, ...data };
+  const bn = document.getElementById('brandName');
+  if (bn) bn.textContent = data.businessName || 'المحاسبة';
   alert('✅ تم حفظ الإعدادات');
   renderSection();
 }
@@ -2772,18 +3091,14 @@ async function handleLogoUpload(event) {
   const reader = new FileReader();
   reader.onload = async e => {
     const base64 = e.target.result;
-
-    // 🎨 استخرج الألوان من الشعار
     const colors = await extractColorsFromLogo(base64);
 
     state.settings.logo = base64;
     state.settings.themePrimary = colors.primary;
     state.settings.themeSecondary = colors.secondary;
 
-    // طبّق الألوان فورًا
     applyThemeColors(colors.primary, colors.secondary);
 
-    // احفظ في Firestore
     await userCol('settings').doc('business').set({
       logo: base64,
       themePrimary: colors.primary,
@@ -2813,12 +3128,12 @@ async function removeLogo() {
 }
 
 async function resetSettings() {
-  if (!confirm('استعادة الإعدادات الافتراضية؟ (سيتم الاحتفاظ بالشعار والألوان)')) return;
+  if (!confirm('مسح بيانات المؤسسة؟ (سيتم الاحتفاظ بالشعار والألوان)')) return;
   const defaultSettings = {
-    businessName: 'فكرة للديكور والاعلان',
-    address: 'القاعدة-شارع المشروع-جوار ملعب التضامن',
-    phone1: '777-277-990', phone2: '779-504-646',
-    footer: 'شكراً لتعاملكم معنا',
+    businessName: '',
+    address: '',
+    phones: [],
+    footer: '',
     logo: state.settings.logo || '',
     themePrimary: state.settings.themePrimary || null,
     themeSecondary: state.settings.themeSecondary || null,
@@ -2826,14 +3141,16 @@ async function resetSettings() {
   };
   await userCol('settings').doc('business').set(defaultSettings, { merge: true });
   state.settings = { ...state.settings, ...defaultSettings };
+  const bn = document.getElementById('brandName');
+  if (bn) bn.textContent = 'المحاسبة';
   renderSection();
 }
 
 /* ===================== Print Helper ===================== */
 function printHtml(contentHtml) {
   const s = state.settings;
-  const primary = s.themePrimary ? rgbToHex(s.themePrimary) : '#1e3a8a';
-  const secondary = s.themeSecondary ? rgbToHex(s.themeSecondary) : '#0ea5e9';
+  const primary = s.themePrimary ? rgbToHex(s.themePrimary) : '#1a3b5c';
+  const secondary = s.themeSecondary ? rgbToHex(s.themeSecondary) : '#4a9eff';
   const primaryPale = s.themePrimary ? rgbToHex(adjustColor(s.themePrimary, 94)) : '#eff6ff';
   const secondarySoft = s.themeSecondary ? rgbToHex(adjustColor(s.themeSecondary, 88)) : '#e0f2fe';
 
@@ -2864,12 +3181,6 @@ function printHtml(contentHtml) {
       .print-footer { margin-top: 40px; padding-top: 16px; border-top: 1px dashed #999; text-align: center; font-size: 12px; color: #666; }
       .voucher-box { margin-top: 20px; padding: 20px; border: 1px solid #cbd5e1; background: #fafafa; font-size: 15px; line-height: 2; }
       .signatures { margin-top: 60px; display: flex; justify-content: space-between; font-size: 13px; }
-      .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-      .badge-green { background: #dcfce7; color: #15803d; }
-      .badge-red { background: #fee2e2; color: #b91c1c; }
-      .badge-orange { background: #fef3c7; color: #b45309; }
-      .badge-blue { background: ${primaryPale}; color: ${primary}; }
-      .badge-gray { background: #e2e8f0; color: #475569; }
       @media print { body { padding: 0; } }
     </style>
   </head><body>${contentHtml}</body></html>`);
