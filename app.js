@@ -3,7 +3,53 @@
    VERSION 3 - إصلاح قراءة حقول الخصم/الضريبة/المدفوع
    ===================================================================== */
 
-console.log('✅ app.js VERSION 3 loaded — ' + new Date().toISOString());
+console.log('✅ app.js VERSION 4 loaded — ' + new Date().toISOString());
+
+/* ====== معالج تسجيل الدخول المحسّن ====== */
+(function setupLogin() {
+  const btn = document.getElementById('googleLogin');
+  if (!btn) {
+    console.error('❌ لم يتم العثور على زر تسجيل الدخول #googleLogin');
+    return;
+  }
+  console.log('✅ زر تسجيل الدخول مرتبط');
+
+  btn.addEventListener('click', async () => {
+    console.log('🖱️ تم الضغط على زر تسجيل الدخول');
+
+    // التحقق من Firebase
+    if (typeof firebase === 'undefined') {
+      alert('❌ Firebase SDK لم يُحمّل. تأكد من اتصالك بالإنترنت وأعد تحميل الصفحة.');
+      return;
+    }
+    if (typeof auth === 'undefined') {
+      alert('❌ Firebase Auth غير مهيأ. تحقق من firebase-config.js');
+      return;
+    }
+
+    const provider = new firebase.auth.GoogleAuthProvider();
+    try {
+      console.log('🚀 محاولة فتح نافذة Google...');
+      await auth.signInWithPopup(provider);
+      console.log('✅ نجح تسجيل الدخول');
+    } catch (e) {
+      console.error('❌ خطأ تسجيل الدخول:', e.code, e.message);
+
+      // إذا حجب المتصفح النافذة → نستخدم Redirect
+      if (e.code === 'auth/popup-blocked' || e.code === 'auth/popup-closed-by-user') {
+        console.log('⚠️ النافذة محجوبة — التحويل إلى Redirect...');
+        try {
+          await auth.signInWithRedirect(provider);
+        } catch (e2) {
+          console.error('❌ خطأ Redirect:', e2);
+          document.getElementById('loginError').textContent = 'فشل تسجيل الدخول: ' + e2.message;
+        }
+      } else {
+        document.getElementById('loginError').textContent = 'فشل تسجيل الدخول: ' + e.message;
+      }
+    }
+  });
+})();
 
 /* ===================== Utilities ===================== */
 const $ = s => document.querySelector(s);
