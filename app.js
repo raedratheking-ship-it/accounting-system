@@ -1,21 +1,22 @@
 /* =====================================================================
-   النظام المحاسبي المتكامل - app.js
+ النظام المحاسبي المتكامل - app.js
    VERSION 5 - تسجيل الدخول عبر Redirect (بدون نوافذ منبثقة)
    ===================================================================== */
 
-console.log('✅ app.js VERSION 5 loaded — ' + new Date().toISOString());
-
-/* ====== معالج تسجيل الدخول بـ Redirect ====== */
+console.log('✅ app.js VERSION 6 loaded — ' + new Date().toISOString());
+/* ====== معالج تسجيل الدخول (Popup أولاً، Redirect كاحتياط) ====== */
 (function setupLogin() {
   const btn = document.getElementById('googleLogin');
   if (!btn) {
     console.error('❌ لم يتم العثور على زر #googleLogin');
     return;
   }
-  console.log('✅ زر تسجيل الدخول مرتبط');
+  console.log('✅ زر تسجيل الدخول مرتبط (VERSION 6 — popup+redirect)');
 
   btn.addEventListener('click', async (ev) => {
     ev.preventDefault();
+    ev.stopImmediatePropagation();
+
     console.log('🖱️ تم الضغط على زر تسجيل الدخول');
 
     if (typeof firebase === 'undefined') {
@@ -31,14 +32,32 @@ console.log('✅ app.js VERSION 5 loaded — ' + new Date().toISOString());
     provider.setCustomParameters({ prompt: 'select_account' });
 
     try {
-      console.log('🚀 التحويل إلى Google (Redirect)...');
-      await auth.signInWithRedirect(provider);
+      // 1) جرّب Popup أولاً (الأسرع والأكثر موثوقية)
+      console.log('🚀 محاولة فتح نافذة Google (Popup)...');
+      const result = await auth.signInWithPopup(provider);
+      console.log('✅ نجح تسجيل الدخول عبر Popup:', result.user.email);
     } catch (e) {
-      console.error('❌ خطأ Redirect:', e.code, e.message);
-      const errEl = document.getElementById('loginError');
-      if (errEl) errEl.textContent = 'فشل تسجيل الدخول: ' + e.message;
+      console.warn('⚠️ فشل Popup:', e.code, e.message);
+
+      // 2) إذا كان Popup محجوبًا، جرّب Redirect
+      if (e.code === 'auth/popup-blocked' || 
+          e.code === 'auth/popup-closed-by-user' ||
+          e.code === 'auth/cancelled-popup-request') {
+        console.log('🔄 تحويل إلى Redirect...');
+        try {
+          await auth.signInWithRedirect(provider);
+        } catch (e2) {
+          console.error('❌ خطأ Redirect:', e2.code, e2.message);
+          const errEl = document.getElementById('loginError');
+          if (errEl) errEl.textContent = 'فشل تسجيل الدخول: ' + e2.message;
+        }
+      } else {
+        console.error('❌ خطأ غير متوقع:', e.code, e.message);
+        const errEl = document.getElementById('loginError');
+        if (errEl) errEl.textContent = 'فشل تسجيل الدخول: ' + e.message;
+      }
     }
-  });
+  }, true);
 })();
 
 /* ===================== Utilities ===================== */
