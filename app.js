@@ -1,9 +1,9 @@
 /* =====================================================================
    النظام المحاسبي المتكامل - app.js
-   VERSION 13 - Excel + عروض الأسعار
+   VERSION 14 - إصلاح Excel العربي (CSV + XLSX)
    ===================================================================== */
 
-console.log('✅ app.js VERSION 13 loaded — ' + new Date().toISOString());
+console.log('✅ app.js VERSION 14 loaded — ' + new Date().toISOString());
 
 /* ====== معالج تسجيل الدخول ====== */
 (function setupLogin() {
@@ -405,47 +405,36 @@ function exportPDF(docTitle, contentHTML, filename) {
 }
 
 /* ============================================================
-   📊 EXCEL - تصدير واستيراد
-   ============================================================ */function exportToExcel(data, headers, filename, sheetName = 'Sheet1') {
+   📊 EXCEL - الحل النهائي للمشكلة العربية
+   ============================================================ */
+
+// ============ التصدير إلى Excel (xlsx) ============
+function exportToExcel(data, headers, filename, sheetName = 'Sheet1') {
   if (typeof XLSX === 'undefined') {
     alert('⚠️ مكتبة Excel لم تُحمّل. تحقق من الإنترنت وأعد تحميل الصفحة.');
     return;
   }
   try {
-    const aoa = [headers.map(h => h.label)];
+    // بناء البيانات كـ array of arrays
+    const aoa = [headers.map(h => String(h.label || ''))];
     data.forEach(row => {
       aoa.push(headers.map(h => {
         const val = h.getter ? h.getter(row) : row[h.key];
-        return val === undefined || val === null ? '' : val;
+        return val === undefined || val === null ? '' : String(val);
       }));
     });
+
+    // إنشاء الورقة بدون أي إعدادات RTL
     const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+    // ضبط عرض الأعمدة فقط
     ws['!cols'] = headers.map(h => ({ wch: h.width || 18 }));
 
-    // ضبط النص على RTL لكل خلية (لضمان عرض عربي صحيح)
-    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-    for (let R = range.s.r; R <= range.e.r; R++) {
-      for (let C = range.s.c; C <= range.e.c; C++) {
-        const addr = XLSX.utils.encode_cell({ r: R, c: C });
-        if (!ws[addr]) continue;
-        ws[addr].s = {
-          alignment: {
-            readingOrder: 2,
-            horizontal: 'right',
-            vertical: 'center'
-          }
-        };
-      }
-    }
-
+    // إنشاء الـ workbook
     const wb = XLSX.utils.book_new();
-
-    // ✅ الحل الأساسي: ضبط RTL على مستوى الـ Workbook
-    wb.Workbook = {
-      Views: [{ RTL: true }]
-    };
-
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
+
+    // كتابة الملف
     XLSX.writeFile(wb, filename + '_' + today() + '.xlsx');
     console.log('✅ تم تصدير Excel:', filename);
   } catch (err) {
@@ -454,6 +443,91 @@ function exportPDF(docTitle, contentHTML, filename) {
   }
 }
 
+// ============ التصدير إلى CSV (حل مضمون للعربية) ============
+function exportToCSV(data, headers, filename) {
+  try {
+    // بناء الصفوف
+    const rows = [headers.map(h => String(h.label || ''))];
+    data.forEach(row => {
+      rows.push(headers.map(h => {
+        const val = h.getter ? h.getter(row) : row[h.key];
+        return val === undefined || val === null ? '' : String(val);
+      }));
+    });
+
+    // تحويل إلى CSV مع علامات اقتباس
+    const csvContent = rows.map(row =>
+      row.map(cell => {
+        const str = String(cell).replace(/"/g, '""');
+        return `"${str}"`;
+      }).join(',')
+    ).join('\r\n');
+
+    // ✅ الأهم: إضافة BOM (Byte Order Mark) لتمكين Excel من قراءة العربية بشكل صحيح
+    const BOM = '\uFEFF';
+    const csvWithBOM = BOM + csvContent;
+
+    // إنشاء الملف وتحميله
+    const blob = new Blob([csvWithBOM], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename + '_' + today() + '.csv');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    console.log('✅ تم تصدير CSV:', filename);
+  } catch (err) {
+    console.error('❌ CSV export error:', err);
+    alert('فشل تصدير CSV: ' + err.message);
+  }
+}
+
+// ============ دالة عامة: تصدير Excel أو CSV ============
+function exportToFile(data, headers, filename, sheetName) {
+  // نعرض نافذة يختار منها المستخدم
+  const totalRows = data.length;
+  openModal('تصدير إلى ملف', `
+    <div style="padding:10px;">
+      <div style="background:var(--primary-soft);padding:16px;border-radius:12px;margin-bottom:20px;border:1px solid var(--accent);">
+        <h4 style="margin:0 0 10px;color:var(--primary);font-size:15px;">📊 تصدير ${totalRows} سجل</h4>
+        <p style="margin:0;color:var(--text-2);font-size:13px;">اختر صيغة الملف المناسبة:</p>
+      </div>
+
+      <div style="display:grid;gap:12px;">
+        <button class="btn btn-primary" onclick="closeModal(); window._doExportCSV();" style="padding:18px;text-align:right;justify-content:flex-start;">
+          <span style="font-size:24px;margin-left:12px;">📄</span>
+          <div style="text-align:right;flex:1;">
+            <div style="font-weight:800;font-size:14px;">CSV (موصى به للعربية)</div>
+            <div style="font-size:11px;opacity:0.8;font-weight:600;">يفتح في Excel و Google Sheets بشكل صحيح 100%</div>
+          </div>
+        </button>
+
+        <button class="btn btn-success" onclick="closeModal(); window._doExportXLSX();" style="padding:18px;text-align:right;justify-content:flex-start;">
+          <span style="font-size:24px;margin-left:12px;">📊</span>
+          <div style="text-align:right;flex:1;">
+            <div style="font-weight:800;font-size:14px;">Excel (xlsx)</div>
+            <div style="font-size:11px;opacity:0.9;font-weight:600;">ملف Excel أصلي — قد يعرض العربية معكوسة في بعض الإعدادات</div>
+          </div>
+        </button>
+      </div>
+
+      <div style="margin-top:16px;padding:12px;background:var(--orange-soft);border-radius:10px;font-size:12px;color:var(--orange);font-weight:700;">
+        💡 نصيحة: استخدم CSV إذا واجهت مشكلة في عرض الحروف العربية
+      </div>
+    </div>
+  `);
+
+  window._doExportCSV = () => {
+    exportToCSV(data, headers, filename);
+  };
+  window._doExportXLSX = () => {
+    exportToExcel(data, headers, filename, sheetName);
+  };
+}
+
+// ============ الاستيراد من ملف (يدعم CSV و xlsx) ============
 function importFromExcel(callback) {
   if (typeof XLSX === 'undefined') {
     alert('⚠️ مكتبة Excel لم تُحمّل');
@@ -472,10 +546,10 @@ function importFromExcel(callback) {
         const wb = XLSX.read(data, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        console.log('✅ تم قراءة Excel:', json.length, 'صف');
+        console.log('✅ تم قراءة الملف:', json.length, 'صف');
         callback(json);
       } catch (err) {
-        console.error('❌ Excel import error:', err);
+        console.error('❌ Import error:', err);
         alert('فشل قراءة الملف: ' + err.message);
       }
     };
@@ -483,35 +557,23 @@ function importFromExcel(callback) {
   };
   input.click();
 }
+
+// ============ تحميل قالب Excel ============
 function downloadTemplate(headers, filename, sampleRow = null) {
   if (typeof XLSX === 'undefined') { alert('⚠️ مكتبة Excel لم تُحمّل'); return; }
   const aoa = [headers];
   if (sampleRow) aoa.push(sampleRow);
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = headers.map(() => ({ wch: 20 }));
-
-  // ضبط RTL لكل خلية
-  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-  for (let R = range.s.r; R <= range.e.r; R++) {
-    for (let C = range.s.c; C <= range.e.c; C++) {
-      const addr = XLSX.utils.encode_cell({ r: R, c: C });
-      if (!ws[addr]) continue;
-      ws[addr].s = {
-        alignment: { readingOrder: 2, horizontal: 'right', vertical: 'center' }
-      };
-    }
-  }
-
   const wb = XLSX.utils.book_new();
-  wb.Workbook = { Views: [{ RTL: true }] };
   XLSX.utils.book_append_sheet(wb, ws, 'Template');
   XLSX.writeFile(wb, filename + '.xlsx');
 }
 
-/* ============ التصدير لأقسام ============ */
+/* ============ دوال التصدير لكل قسم ============ */
 
 function exportCustomersExcel() {
-  exportToExcel(state.data.customers, [
+  exportToFile(state.data.customers, [
     { label: 'الاسم', key: 'name', width: 25 },
     { label: 'الهاتف', key: 'phone', width: 15 },
     { label: 'العنوان', key: 'address', width: 30 },
@@ -522,7 +584,7 @@ function exportCustomersExcel() {
 }
 
 function exportItemsExcel() {
-  exportToExcel(state.data.items, [
+  exportToFile(state.data.items, [
     { label: 'الكود', key: 'code', width: 12 },
     { label: 'الاسم', key: 'name', width: 30 },
     { label: 'الوحدة', key: 'unit', width: 10 },
@@ -535,7 +597,7 @@ function exportItemsExcel() {
 }
 
 function exportEmployeesExcel() {
-  exportToExcel(state.data.employees, [
+  exportToFile(state.data.employees, [
     { label: 'الاسم', key: 'name', width: 25 },
     { label: 'الوظيفة', key: 'position', width: 20 },
     { label: 'الهاتف', key: 'phone', width: 15 },
@@ -551,7 +613,7 @@ function exportSalesExcel() {
   const to = state.filters.salesTo || '';
   const inRange = d => (!from || d >= from) && (!to || d <= to);
   const list = [...state.data.sales].filter(s => inRange(s.date)).sort((a,b)=>b.createdAt-a.createdAt);
-  exportToExcel(list, [
+  exportToFile(list, [
     { label: 'الرقم', key: 'number', width: 12 },
     { label: 'التاريخ', key: 'date', width: 12 },
     { label: 'العميل', key: 'customerName', width: 25 },
@@ -571,7 +633,7 @@ function exportPurchasesExcel() {
   const to = state.filters.purchasesTo || '';
   const inRange = d => (!from || d >= from) && (!to || d <= to);
   const list = [...state.data.purchases].filter(p => inRange(p.date)).sort((a,b)=>b.createdAt-a.createdAt);
-  exportToExcel(list, [
+  exportToFile(list, [
     { label: 'الرقم', key: 'number', width: 12 },
     { label: 'التاريخ', key: 'date', width: 12 },
     { label: 'المورد', key: 'supplierName', width: 25 },
@@ -589,7 +651,7 @@ function exportJournalExcel() {
   const to = state.filters.journalTo || '';
   const inRange = d => (!from || d >= from) && (!to || d <= to);
   const list = [...state.data.journal].filter(j => inRange(j.date)).sort((a,b)=> (a.date||'').localeCompare(b.date||''));
-  exportToExcel(list, [
+  exportToFile(list, [
     { label: 'التاريخ', key: 'date', width: 12 },
     { label: 'النوع', getter: j => ({income:'إيراد',expense:'مصروف',customer:'دفعة عميل',employee:'سلفة موظف'}[j.type]||j.type), width: 15 },
     { label: 'الطرف', key: 'partyName', width: 25 },
@@ -604,7 +666,7 @@ function exportReceiptsExcel() {
   const to = state.filters.receiptsTo || '';
   const inRange = d => (!from || d >= from) && (!to || d <= to);
   const list = [...state.data.receipts].filter(r => inRange(r.date)).sort((a,b)=>b.createdAt-a.createdAt);
-  exportToExcel(list, [
+  exportToFile(list, [
     { label: 'الرقم', key: 'number', width: 12 },
     { label: 'التاريخ', key: 'date', width: 12 },
     { label: 'العميل', key: 'customerName', width: 25 },
@@ -619,7 +681,7 @@ function exportPaymentsExcel() {
   const to = state.filters.paymentsTo || '';
   const inRange = d => (!from || d >= from) && (!to || d <= to);
   const list = [...state.data.payments].filter(p => inRange(p.date)).sort((a,b)=>b.createdAt-a.createdAt);
-  exportToExcel(list, [
+  exportToFile(list, [
     { label: 'الرقم', key: 'number', width: 12 },
     { label: 'التاريخ', key: 'date', width: 12 },
     { label: 'المستفيد', key: 'beneficiary', width: 25 },
@@ -634,7 +696,7 @@ function exportAdvancesExcel() {
   const to = state.filters.advancesTo || '';
   const inRange = d => (!from || d >= from) && (!to || d <= to);
   const list = [...state.data.advances].filter(a => inRange(a.date)).sort((a,b)=>b.createdAt-a.createdAt);
-  exportToExcel(list, [
+  exportToFile(list, [
     { label: 'الرقم', key: 'number', width: 12 },
     { label: 'التاريخ', key: 'date', width: 12 },
     { label: 'الموظف', key: 'employeeName', width: 25 },
@@ -645,7 +707,7 @@ function exportAdvancesExcel() {
 
 function exportQuotationsExcel() {
   const list = [...state.data.quotations].sort((a,b)=>b.createdAt-a.createdAt);
-  exportToExcel(list, [
+  exportToFile(list, [
     { label: 'الرقم', key: 'number', width: 12 },
     { label: 'التاريخ', key: 'date', width: 12 },
     { label: 'العميل', key: 'customerName', width: 25 },
@@ -656,7 +718,7 @@ function exportQuotationsExcel() {
   ], 'عروض_الأسعار', 'عروض الأسعار');
 }
 
-/* ============ الاستيراد ============ */
+/* ============ دوال الاستيراد ============ */
 
 function importCustomersExcel() {
   downloadTemplateHint(
@@ -769,11 +831,6 @@ function downloadTemplateHint(headers, sample, filename, importCodeStr) {
         <div style="display:flex;flex-wrap:wrap;gap:6px;">
           ${headers.map(h => `<span style="background:#fff;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;border:1px solid var(--border);">${esc(h)}</span>`).join('')}
         </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:10px;">💡 ملاحظة: يمكن استخدام الاسم بالعربية أو الإنجليزية للعمود</div>
-      </div>
-
-      <div style="background:var(--orange-soft);padding:12px;border-radius:10px;margin-bottom:20px;font-size:12px;color:var(--orange);font-weight:700;">
-        ⚠️ سيتم تجاهل الصفوف المكررة (نفس الاسم موجود مسبقًا)
       </div>
 
       <div style="display:flex;gap:10px;justify-content:flex-end;">
@@ -828,7 +885,7 @@ function renderQuotations(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
-          <button class="btn btn-secondary" onclick="exportQuotationsExcel()">📊 Excel</button>
+          <button class="btn btn-secondary" onclick="exportQuotationsExcel()">📊 تصدير</button>
           <button class="btn btn-secondary" onclick="exportQuotationsPDF()">📥 PDF</button>
         ` : ''}
         <button class="btn btn-primary" onclick="openQuotationForm()">+ عرض سعر جديد</button>
@@ -1448,7 +1505,7 @@ function renderJournal(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
-          <button class="btn btn-secondary" onclick="exportJournalExcel()">📊 Excel</button>
+          <button class="btn btn-secondary" onclick="exportJournalExcel()">📊 تصدير</button>
           <button class="btn btn-secondary" onclick="exportJournalListPDF()">📥 PDF (${list.length})</button>
         ` : ''}
         <button class="btn btn-primary" onclick="openJournalForm()">+ قيد جديد</button>
@@ -1764,7 +1821,7 @@ function renderSales(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
-          <button class="btn btn-secondary" onclick="exportSalesExcel()">📊 Excel</button>
+          <button class="btn btn-secondary" onclick="exportSalesExcel()">📊 تصدير</button>
           <button class="btn btn-secondary" onclick="exportSalesPDF('${from}','${to}')">📥 PDF (${list.length})</button>
           <button class="btn btn-secondary" onclick="printSalesList()">🖨️</button>
         ` : ''}
@@ -2085,7 +2142,7 @@ function renderPurchases(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
-          <button class="btn btn-secondary" onclick="exportPurchasesExcel()">📊 Excel</button>
+          <button class="btn btn-secondary" onclick="exportPurchasesExcel()">📊 تصدير</button>
           <button class="btn btn-secondary" onclick="exportPurchasesPDF('${from}','${to}')">📥 PDF (${list.length})</button>
           <button class="btn btn-secondary" onclick="printPurchasesList()">🖨️</button>
         ` : ''}
@@ -2393,7 +2450,7 @@ function renderCustomers(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
-          <button class="btn btn-secondary" onclick="exportCustomersExcel()">📊 Excel</button>
+          <button class="btn btn-secondary" onclick="exportCustomersExcel()">📊 تصدير</button>
           <button class="btn btn-secondary" onclick="importCustomersExcel()">📤 استيراد</button>
           <button class="btn btn-secondary" onclick="exportCustomersPDF()">📥 PDF</button>
           <button class="btn btn-secondary" onclick="printCustomersList()">🖨️</button>
@@ -2589,7 +2646,7 @@ function renderItems(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
-          <button class="btn btn-secondary" onclick="exportItemsExcel()">📊 Excel</button>
+          <button class="btn btn-secondary" onclick="exportItemsExcel()">📊 تصدير</button>
           <button class="btn btn-secondary" onclick="importItemsExcel()">📤 استيراد</button>
           <button class="btn btn-secondary" onclick="exportItemsPDF()">📥 PDF</button>
           <button class="btn btn-secondary" onclick="printItemsList()">🖨️</button>
@@ -2730,7 +2787,7 @@ function renderEmployees(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
-          <button class="btn btn-secondary" onclick="exportEmployeesExcel()">📊 Excel</button>
+          <button class="btn btn-secondary" onclick="exportEmployeesExcel()">📊 تصدير</button>
           <button class="btn btn-secondary" onclick="importEmployeesExcel()">📤 استيراد</button>
           <button class="btn btn-secondary" onclick="exportEmployeesPDF()">📥 PDF</button>
           <button class="btn btn-secondary" onclick="printEmployeesList()">🖨️</button>
@@ -2875,7 +2932,7 @@ function renderAdvances(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
-          <button class="btn btn-secondary" onclick="exportAdvancesExcel()">📊 Excel</button>
+          <button class="btn btn-secondary" onclick="exportAdvancesExcel()">📊 تصدير</button>
           <button class="btn btn-secondary" onclick="exportAdvancesPDF('${from}','${to}')">📥 PDF (${list.length})</button>
           <button class="btn btn-secondary" onclick="printAdvancesList()">🖨️</button>
         ` : ''}
@@ -3186,7 +3243,7 @@ function renderReceipts(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
-          <button class="btn btn-secondary" onclick="exportReceiptsExcel()">📊 Excel</button>
+          <button class="btn btn-secondary" onclick="exportReceiptsExcel()">📊 تصدير</button>
           <button class="btn btn-secondary" onclick="exportReceiptsPDF('${from}','${to}')">📥 PDF (${list.length})</button>
           <button class="btn btn-secondary" onclick="printReceiptsList()">🖨️</button>
         ` : ''}
@@ -3375,7 +3432,7 @@ function renderPayments(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
-          <button class="btn btn-secondary" onclick="exportPaymentsExcel()">📊 Excel</button>
+          <button class="btn btn-secondary" onclick="exportPaymentsExcel()">📊 تصدير</button>
           <button class="btn btn-secondary" onclick="exportPaymentsPDF('${from}','${to}')">📥 PDF (${list.length})</button>
           <button class="btn btn-secondary" onclick="printPaymentsList()">🖨️</button>
         ` : ''}
