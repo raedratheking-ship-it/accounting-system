@@ -406,8 +406,7 @@ function exportPDF(docTitle, contentHTML, filename) {
 
 /* ============================================================
    📊 EXCEL - تصدير واستيراد
-   ============================================================ */
-function exportToExcel(data, headers, filename, sheetName = 'Sheet1') {
+   ============================================================ */function exportToExcel(data, headers, filename, sheetName = 'Sheet1') {
   if (typeof XLSX === 'undefined') {
     alert('⚠️ مكتبة Excel لم تُحمّل. تحقق من الإنترنت وأعد تحميل الصفحة.');
     return;
@@ -422,8 +421,30 @@ function exportToExcel(data, headers, filename, sheetName = 'Sheet1') {
     });
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = headers.map(h => ({ wch: h.width || 18 }));
-    // تم إزالة ws['!dir'] = 'rtl' لأنها كانت تسبب انعكاس الأحرف العربية;
+
+    // ضبط النص على RTL لكل خلية (لضمان عرض عربي صحيح)
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    for (let R = range.s.r; R <= range.e.r; R++) {
+      for (let C = range.s.c; C <= range.e.c; C++) {
+        const addr = XLSX.utils.encode_cell({ r: R, c: C });
+        if (!ws[addr]) continue;
+        ws[addr].s = {
+          alignment: {
+            readingOrder: 2,
+            horizontal: 'right',
+            vertical: 'center'
+          }
+        };
+      }
+    }
+
     const wb = XLSX.utils.book_new();
+
+    // ✅ الحل الأساسي: ضبط RTL على مستوى الـ Workbook
+    wb.Workbook = {
+      Views: [{ RTL: true }]
+    };
+
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
     XLSX.writeFile(wb, filename + '_' + today() + '.xlsx');
     console.log('✅ تم تصدير Excel:', filename);
@@ -462,15 +483,27 @@ function importFromExcel(callback) {
   };
   input.click();
 }
-
 function downloadTemplate(headers, filename, sampleRow = null) {
   if (typeof XLSX === 'undefined') { alert('⚠️ مكتبة Excel لم تُحمّل'); return; }
   const aoa = [headers];
   if (sampleRow) aoa.push(sampleRow);
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = headers.map(() => ({ wch: 20 }));
-  // تم إزالة ws['!dir'] = 'rtl'
+
+  // ضبط RTL لكل خلية
+  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C });
+      if (!ws[addr]) continue;
+      ws[addr].s = {
+        alignment: { readingOrder: 2, horizontal: 'right', vertical: 'center' }
+      };
+    }
+  }
+
   const wb = XLSX.utils.book_new();
+  wb.Workbook = { Views: [{ RTL: true }] };
   XLSX.utils.book_append_sheet(wb, ws, 'Template');
   XLSX.writeFile(wb, filename + '.xlsx');
 }
