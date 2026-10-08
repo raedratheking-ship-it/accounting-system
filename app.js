@@ -1,9 +1,9 @@
 /* =====================================================================
    النظام المحاسبي المتكامل - app.js
-   VERSION 12 - جلسة دائمة + بيانات شركة فارغة + حقول هواتف ديناميكية
+   VERSION 13 - Excel + عروض الأسعار
    ===================================================================== */
 
-console.log('✅ app.js VERSION 12 loaded — ' + new Date().toISOString());
+console.log('✅ app.js VERSION 13 loaded — ' + new Date().toISOString());
 
 /* ====== معالج تسجيل الدخول ====== */
 (function setupLogin() {
@@ -165,7 +165,7 @@ const state = {
   user: null,
   data: {
     customers:[], employees:[], items:[], sales:[], purchases:[],
-    receipts:[], payments:[], advances:[], salaries:[], journal:[]
+    receipts:[], payments:[], advances:[], salaries:[], journal:[], quotations:[]
   },
   settings: {
     businessName: '',
@@ -179,7 +179,7 @@ const state = {
   filters: {}
 };
 
-const COLLECTIONS = ['customers','employees','items','sales','purchases','receipts','payments','advances','salaries','journal'];
+const COLLECTIONS = ['customers','employees','items','sales','purchases','receipts','payments','advances','salaries','journal','quotations'];
 
 /* ===================== Auth State ===================== */
 $('#logoutBtn').addEventListener('click', async () => {
@@ -283,11 +283,11 @@ function showSection(name) {
 function renderSection() {
   const c = $('#content');
   const map = {
-    dashboard: renderDashboard, journal: renderJournal, sales: renderSales,
-    purchases: renderPurchases, customers: renderCustomers, items: renderItems,
-    employees: renderEmployees, advances: renderAdvances, salaries: renderSalaries,
-    receipts: renderReceipts, payments: renderPayments, reports: renderReports,
-    settings: renderSettings
+    dashboard: renderDashboard, journal: renderJournal, quotations: renderQuotations,
+    sales: renderSales, purchases: renderPurchases, customers: renderCustomers,
+    items: renderItems, employees: renderEmployees, advances: renderAdvances,
+    salaries: renderSalaries, receipts: renderReceipts, payments: renderPayments,
+    reports: renderReports, settings: renderSettings
   };
   (map[state.section] || renderDashboard)(c);
 }
@@ -404,6 +404,756 @@ function exportPDF(docTitle, contentHTML, filename) {
     .catch(err => { console.error('❌ خطأ PDF:', err); alert('فشل PDF: ' + err.message); });
 }
 
+/* ============================================================
+   📊 EXCEL - تصدير واستيراد
+   ============================================================ */
+function exportToExcel(data, headers, filename, sheetName = 'Sheet1') {
+  if (typeof XLSX === 'undefined') {
+    alert('⚠️ مكتبة Excel لم تُحمّل. تحقق من الإنترنت وأعد تحميل الصفحة.');
+    return;
+  }
+  try {
+    const aoa = [headers.map(h => h.label)];
+    data.forEach(row => {
+      aoa.push(headers.map(h => {
+        const val = h.getter ? h.getter(row) : row[h.key];
+        return val === undefined || val === null ? '' : val;
+      }));
+    });
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = headers.map(h => ({ wch: h.width || 18 }));
+    ws['!dir'] = 'rtl';
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    XLSX.writeFile(wb, filename + '_' + today() + '.xlsx');
+    console.log('✅ تم تصدير Excel:', filename);
+  } catch (err) {
+    console.error('❌ Excel export error:', err);
+    alert('فشل تصدير Excel: ' + err.message);
+  }
+}
+
+function importFromExcel(callback) {
+  if (typeof XLSX === 'undefined') {
+    alert('⚠️ مكتبة Excel لم تُحمّل');
+    return;
+  }
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.xlsx,.xls,.csv';
+  input.onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = evt => {
+      try {
+        const data = new Uint8Array(evt.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        console.log('✅ تم قراءة Excel:', json.length, 'صف');
+        callback(json);
+      } catch (err) {
+        console.error('❌ Excel import error:', err);
+        alert('فشل قراءة الملف: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+  input.click();
+}
+
+function downloadTemplate(headers, filename, sampleRow = null) {
+  if (typeof XLSX === 'undefined') { alert('⚠️ مكتبة Excel لم تُحمّل'); return; }
+  const aoa = [headers];
+  if (sampleRow) aoa.push(sampleRow);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = headers.map(() => ({ wch: 20 }));
+  ws['!dir'] = 'rtl';
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Template');
+  XLSX.writeFile(wb, filename + '.xlsx');
+}
+
+/* ============ التصدير لأقسام ============ */
+
+function exportCustomersExcel() {
+  exportToExcel(state.data.customers, [
+    { label: 'الاسم', key: 'name', width: 25 },
+    { label: 'الهاتف', key: 'phone', width: 15 },
+    { label: 'العنوان', key: 'address', width: 30 },
+    { label: 'الرصيد الافتتاحي', key: 'openingBalance', width: 15 },
+    { label: 'الرصيد الحالي', getter: cu => customerBalance(cu.id), width: 15 },
+    { label: 'ملاحظات', key: 'notes', width: 30 }
+  ], 'العملاء', 'العملاء');
+}
+
+function exportItemsExcel() {
+  exportToExcel(state.data.items, [
+    { label: 'الكود', key: 'code', width: 12 },
+    { label: 'الاسم', key: 'name', width: 30 },
+    { label: 'الوحدة', key: 'unit', width: 10 },
+    { label: 'سعر التكلفة', key: 'cost', width: 12 },
+    { label: 'سعر البيع', key: 'price', width: 12 },
+    { label: 'الكمية', key: 'quantity', width: 10 },
+    { label: 'الحد الأدنى', key: 'minQuantity', width: 12 },
+    { label: 'ملاحظات', key: 'notes', width: 30 }
+  ], 'الأصناف', 'الأصناف');
+}
+
+function exportEmployeesExcel() {
+  exportToExcel(state.data.employees, [
+    { label: 'الاسم', key: 'name', width: 25 },
+    { label: 'الوظيفة', key: 'position', width: 20 },
+    { label: 'الهاتف', key: 'phone', width: 15 },
+    { label: 'تاريخ التعيين', key: 'hireDate', width: 15 },
+    { label: 'الراتب الأساسي', key: 'basicSalary', width: 15 },
+    { label: 'البدلات', key: 'allowances', width: 12 },
+    { label: 'الإجمالي', getter: e => (Number(e.basicSalary)||0) + (Number(e.allowances)||0), width: 15 }
+  ], 'الموظفون', 'الموظفون');
+}
+
+function exportSalesExcel() {
+  const from = state.filters.salesFrom || '';
+  const to = state.filters.salesTo || '';
+  const inRange = d => (!from || d >= from) && (!to || d <= to);
+  const list = [...state.data.sales].filter(s => inRange(s.date)).sort((a,b)=>b.createdAt-a.createdAt);
+  exportToExcel(list, [
+    { label: 'الرقم', key: 'number', width: 12 },
+    { label: 'التاريخ', key: 'date', width: 12 },
+    { label: 'العميل', key: 'customerName', width: 25 },
+    { label: 'النوع', getter: s => s.type === 'cash' ? 'نقدي' : 'آجل', width: 10 },
+    { label: 'المجموع الفرعي', key: 'subtotal', width: 12 },
+    { label: 'الخصم', key: 'discount', width: 10 },
+    { label: 'الضريبة', key: 'tax', width: 10 },
+    { label: 'الإجمالي', key: 'total', width: 12 },
+    { label: 'المدفوع', key: 'paid', width: 12 },
+    { label: 'المتبقي', key: 'remaining', width: 12 },
+    { label: 'ملاحظات', key: 'notes', width: 30 }
+  ], 'فواتير_البيع', 'فواتير البيع');
+}
+
+function exportPurchasesExcel() {
+  const from = state.filters.purchasesFrom || '';
+  const to = state.filters.purchasesTo || '';
+  const inRange = d => (!from || d >= from) && (!to || d <= to);
+  const list = [...state.data.purchases].filter(p => inRange(p.date)).sort((a,b)=>b.createdAt-a.createdAt);
+  exportToExcel(list, [
+    { label: 'الرقم', key: 'number', width: 12 },
+    { label: 'التاريخ', key: 'date', width: 12 },
+    { label: 'المورد', key: 'supplierName', width: 25 },
+    { label: 'المجموع الفرعي', key: 'subtotal', width: 12 },
+    { label: 'الخصم', key: 'discount', width: 10 },
+    { label: 'الضريبة', key: 'tax', width: 10 },
+    { label: 'الإجمالي', key: 'total', width: 12 },
+    { label: 'المدفوع', key: 'paid', width: 12 },
+    { label: 'المتبقي', key: 'remaining', width: 12 }
+  ], 'فواتير_الشراء', 'فواتير الشراء');
+}
+
+function exportJournalExcel() {
+  const from = state.filters.journalFrom || '';
+  const to = state.filters.journalTo || '';
+  const inRange = d => (!from || d >= from) && (!to || d <= to);
+  const list = [...state.data.journal].filter(j => inRange(j.date)).sort((a,b)=> (a.date||'').localeCompare(b.date||''));
+  exportToExcel(list, [
+    { label: 'التاريخ', key: 'date', width: 12 },
+    { label: 'النوع', getter: j => ({income:'إيراد',expense:'مصروف',customer:'دفعة عميل',employee:'سلفة موظف'}[j.type]||j.type), width: 15 },
+    { label: 'الطرف', key: 'partyName', width: 25 },
+    { label: 'الوصف', key: 'description', width: 35 },
+    { label: 'المبلغ', key: 'amount', width: 12 },
+    { label: 'ملاحظات', key: 'notes', width: 30 }
+  ], 'القيود_اليومية', 'القيود');
+}
+
+function exportReceiptsExcel() {
+  const from = state.filters.receiptsFrom || '';
+  const to = state.filters.receiptsTo || '';
+  const inRange = d => (!from || d >= from) && (!to || d <= to);
+  const list = [...state.data.receipts].filter(r => inRange(r.date)).sort((a,b)=>b.createdAt-a.createdAt);
+  exportToExcel(list, [
+    { label: 'الرقم', key: 'number', width: 12 },
+    { label: 'التاريخ', key: 'date', width: 12 },
+    { label: 'العميل', key: 'customerName', width: 25 },
+    { label: 'المبلغ', key: 'amount', width: 12 },
+    { label: 'طريقة الدفع', key: 'method', width: 15 },
+    { label: 'ملاحظات', key: 'notes', width: 30 }
+  ], 'سندات_القبض', 'سندات القبض');
+}
+
+function exportPaymentsExcel() {
+  const from = state.filters.paymentsFrom || '';
+  const to = state.filters.paymentsTo || '';
+  const inRange = d => (!from || d >= from) && (!to || d <= to);
+  const list = [...state.data.payments].filter(p => inRange(p.date)).sort((a,b)=>b.createdAt-a.createdAt);
+  exportToExcel(list, [
+    { label: 'الرقم', key: 'number', width: 12 },
+    { label: 'التاريخ', key: 'date', width: 12 },
+    { label: 'المستفيد', key: 'beneficiary', width: 25 },
+    { label: 'المبلغ', key: 'amount', width: 12 },
+    { label: 'طريقة الدفع', key: 'method', width: 15 },
+    { label: 'ملاحظات', key: 'notes', width: 30 }
+  ], 'سندات_الصرف', 'سندات الصرف');
+}
+
+function exportAdvancesExcel() {
+  const from = state.filters.advancesFrom || '';
+  const to = state.filters.advancesTo || '';
+  const inRange = d => (!from || d >= from) && (!to || d <= to);
+  const list = [...state.data.advances].filter(a => inRange(a.date)).sort((a,b)=>b.createdAt-a.createdAt);
+  exportToExcel(list, [
+    { label: 'الرقم', key: 'number', width: 12 },
+    { label: 'التاريخ', key: 'date', width: 12 },
+    { label: 'الموظف', key: 'employeeName', width: 25 },
+    { label: 'المبلغ', key: 'amount', width: 12 },
+    { label: 'ملاحظات', key: 'notes', width: 30 }
+  ], 'سلف_الموظفين', 'السلف');
+}
+
+function exportQuotationsExcel() {
+  const list = [...state.data.quotations].sort((a,b)=>b.createdAt-a.createdAt);
+  exportToExcel(list, [
+    { label: 'الرقم', key: 'number', width: 12 },
+    { label: 'التاريخ', key: 'date', width: 12 },
+    { label: 'العميل', key: 'customerName', width: 25 },
+    { label: 'صالح حتى', key: 'validUntil', width: 12 },
+    { label: 'الإجمالي', key: 'total', width: 12 },
+    { label: 'الحالة', getter: q => ({pending:'معلّق',accepted:'مقبول',rejected:'مرفوض',converted:'تم تحويله'}[q.status]||q.status), width: 12 },
+    { label: 'ملاحظات', key: 'notes', width: 30 }
+  ], 'عروض_الأسعار', 'عروض الأسعار');
+}
+
+/* ============ الاستيراد ============ */
+
+function importCustomersExcel() {
+  downloadTemplateHint(
+    ['الاسم', 'الهاتف', 'العنوان', 'الرصيد الافتتاحي', 'ملاحظات'],
+    ['أحمد محمد', '770000000', 'صنعاء', '0', ''],
+    'قالب_العملاء',
+    `importFromExcel(async (rows) => {
+      if (!rows.length) { alert('الملف فارغ'); return; }
+      if (!confirm('سيتم استيراد ' + rows.length + ' عميل. هل تريد المتابعة؟')) return;
+      let imported = 0, skipped = 0;
+      for (const row of rows) {
+        const name = String(row['الاسم'] || row['name'] || '').trim();
+        if (!name) { skipped++; continue; }
+        const existing = state.data.customers.find(c => c.name.trim() === name);
+        if (existing) { skipped++; continue; }
+        await userCol('customers').add({
+          name,
+          phone: String(row['الهاتف'] || row['phone'] || '').trim(),
+          address: String(row['العنوان'] || row['address'] || '').trim(),
+          openingBalance: parseNum(row['الرصيد الافتتاحي'] || row['openingBalance'] || 0),
+          notes: String(row['ملاحظات'] || row['notes'] || '').trim(),
+          createdAt: Date.now()
+        });
+        imported++;
+      }
+      alert('✅ تم الاستيراد:\\n- مستورد: ' + imported + '\\n- متجاهل (مكرر أو فارغ): ' + skipped);
+    })`
+  );
+}
+
+function importItemsExcel() {
+  downloadTemplateHint(
+    ['الكود', 'الاسم', 'الوحدة', 'سعر التكلفة', 'سعر البيع', 'الكمية', 'الحد الأدنى', 'ملاحظات'],
+    ['ITM-001', 'أرز', 'كيلو', '10', '15', '100', '10', ''],
+    'قالب_الأصناف',
+    `importFromExcel(async (rows) => {
+      if (!rows.length) { alert('الملف فارغ'); return; }
+      if (!confirm('سيتم استيراد ' + rows.length + ' صنف. هل تريد المتابعة؟')) return;
+      let imported = 0, skipped = 0;
+      for (const row of rows) {
+        const name = String(row['الاسم'] || row['name'] || '').trim();
+        if (!name) { skipped++; continue; }
+        const existing = state.data.items.find(i => i.name.trim() === name);
+        if (existing) { skipped++; continue; }
+        await userCol('items').add({
+          code: String(row['الكود'] || row['code'] || '').trim(),
+          name,
+          unit: String(row['الوحدة'] || row['unit'] || '').trim(),
+          cost: parseNum(row['سعر التكلفة'] || row['cost'] || 0),
+          price: parseNum(row['سعر البيع'] || row['price'] || 0),
+          quantity: parseNum(row['الكمية'] || row['quantity'] || 0),
+          minQuantity: parseNum(row['الحد الأدنى'] || row['minQuantity'] || 0),
+          notes: String(row['ملاحظات'] || row['notes'] || '').trim(),
+          createdAt: Date.now()
+        });
+        imported++;
+      }
+      alert('✅ تم الاستيراد:\\n- مستورد: ' + imported + '\\n- متجاهل: ' + skipped);
+    })`
+  );
+}
+
+function importEmployeesExcel() {
+  downloadTemplateHint(
+    ['الاسم', 'الوظيفة', 'الهاتف', 'تاريخ التعيين', 'الراتب الأساسي', 'البدلات', 'ملاحظات'],
+    ['محمد علي', 'محاسب', '770000000', '2024-01-01', '5000', '500', ''],
+    'قالب_الموظفين',
+    `importFromExcel(async (rows) => {
+      if (!rows.length) { alert('الملف فارغ'); return; }
+      if (!confirm('سيتم استيراد ' + rows.length + ' موظف. هل تريد المتابعة؟')) return;
+      let imported = 0, skipped = 0;
+      for (const row of rows) {
+        const name = String(row['الاسم'] || row['name'] || '').trim();
+        if (!name) { skipped++; continue; }
+        const existing = state.data.employees.find(e => e.name.trim() === name);
+        if (existing) { skipped++; continue; }
+        await userCol('employees').add({
+          name,
+          position: String(row['الوظيفة'] || row['position'] || '').trim(),
+          phone: String(row['الهاتف'] || row['phone'] || '').trim(),
+          hireDate: String(row['تاريخ التعيين'] || row['hireDate'] || today()).trim(),
+          basicSalary: parseNum(row['الراتب الأساسي'] || row['basicSalary'] || 0),
+          allowances: parseNum(row['البدلات'] || row['allowances'] || 0),
+          notes: String(row['ملاحظات'] || row['notes'] || '').trim(),
+          createdAt: Date.now()
+        });
+        imported++;
+      }
+      alert('✅ تم الاستيراد:\\n- مستورد: ' + imported + '\\n- متجاهل: ' + skipped);
+    })`
+  );
+}
+
+function downloadTemplateHint(headers, sample, filename, importCodeStr) {
+  window._pendingImportCode = importCodeStr;
+  openModal('استيراد من Excel', `
+    <div style="padding:10px;">
+      <div style="background:var(--primary-soft);padding:16px;border-radius:12px;margin-bottom:20px;border:1px solid var(--accent);">
+        <h4 style="margin:0 0 10px;color:var(--primary);font-size:15px;">📋 خطوات الاستيراد:</h4>
+        <ol style="margin:0;padding-right:20px;line-height:2;color:var(--text-2);font-size:13px;">
+          <li>اضغط <strong>"تحميل القالب"</strong> لتنزيل ملف Excel نموذجي</li>
+          <li>افتح الملف وأضف بياناتك (لا تحذف السطر الأول - العناوين)</li>
+          <li>احفظ الملف</li>
+          <li>اضغط <strong>"استيراد الملف"</strong> واختر الملف المحفوظ</li>
+        </ol>
+      </div>
+
+      <div style="background:var(--bg);padding:14px;border-radius:12px;margin-bottom:20px;border:1px solid var(--border);">
+        <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:10px;">📌 الأعمدة المطلوبة:</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${headers.map(h => `<span style="background:#fff;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;border:1px solid var(--border);">${esc(h)}</span>`).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:10px;">💡 ملاحظة: يمكن استخدام الاسم بالعربية أو الإنجليزية للعمود</div>
+      </div>
+
+      <div style="background:var(--orange-soft);padding:12px;border-radius:10px;margin-bottom:20px;font-size:12px;color:var(--orange);font-weight:700;">
+        ⚠️ سيتم تجاهل الصفوف المكررة (نفس الاسم موجود مسبقًا)
+      </div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn btn-secondary" onclick="closeModal()">إلغاء</button>
+        <button class="btn btn-secondary" onclick="window._doDownloadTemplate()">📥 تحميل القالب</button>
+        <button class="btn btn-primary" onclick="window._doImportFile()">📤 استيراد الملف</button>
+      </div>
+    </div>
+  `);
+  window._doDownloadTemplate = () => downloadTemplate(headers, filename, sample);
+  window._doImportFile = () => {
+    closeModal();
+    eval(window._pendingImportCode);
+  };
+}
+
+/* ============================================================
+   💼 عروض الأسعار
+   ============================================================ */
+function renderQuotations(c) {
+  const q = (state.filters.quotations || '').toLowerCase();
+  const from = state.filters.quotationsFrom || '';
+  const to = state.filters.quotationsTo || '';
+  const inRange = d => (!from || d >= from) && (!to || d <= to);
+
+  const list = [...state.data.quotations]
+    .filter(qt => inRange(qt.date))
+    .filter(qt => !q || (qt.number||'').toLowerCase().includes(q) || (qt.customerName||'').toLowerCase().includes(q))
+    .sort((a,b)=>b.createdAt-a.createdAt);
+
+  const total = list.reduce((s,x)=>s+(Number(x.total)||0),0);
+  const pending = list.filter(x => x.status === 'pending').length;
+  const accepted = list.filter(x => x.status === 'accepted').length;
+  const converted = list.filter(x => x.status === 'converted').length;
+
+  c.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2>💼 عروض الأسعار</h2>
+        <div class="page-subtitle">إنشاء عروض أسعار للعملاء (لا تؤثر على المخزون)</div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <label style="font-size:13px;font-weight:700;">من:</label>
+        <input type="date" class="search-input" value="${from}" onchange="state.filters.quotationsFrom=this.value;renderSection()">
+        <label style="font-size:13px;font-weight:700;">إلى:</label>
+        <input type="date" class="search-input" value="${to}" onchange="state.filters.quotationsTo=this.value;renderSection()">
+        <input class="search-input" placeholder="🔍 بحث..." value="${esc(state.filters.quotations||'')}" oninput="setFilter('quotations',this.value)" style="max-width:180px;">
+        ${from || to ? `<button class="btn btn-secondary btn-sm" onclick="state.filters.quotationsFrom='';state.filters.quotationsTo='';renderSection()">إعادة تعيين</button>` : ''}
+      </div>
+      <div class="toolbar-right">
+        ${list.length ? `
+          <button class="btn btn-secondary" onclick="exportQuotationsExcel()">📊 Excel</button>
+          <button class="btn btn-secondary" onclick="exportQuotationsPDF()">📥 PDF</button>
+        ` : ''}
+        <button class="btn btn-primary" onclick="openQuotationForm()">+ عرض سعر جديد</button>
+      </div>
+    </div>
+
+    <div class="stats-grid stats-grid-4">
+      <div class="stat-card">
+        <div class="stat-icon primary">💼</div>
+        <div class="stat-body">
+          <div class="stat-label">إجمالي العروض</div>
+          <div class="stat-value">${list.length}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon orange">⏳</div>
+        <div class="stat-body">
+          <div class="stat-label">معلّقة</div>
+          <div class="stat-value">${pending}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon green">✅</div>
+        <div class="stat-body">
+          <div class="stat-label">مقبولة</div>
+          <div class="stat-value">${accepted}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue">🧾</div>
+        <div class="stat-body">
+          <div class="stat-label">تم تحويلها</div>
+          <div class="stat-value">${converted}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3>الإجمالي: ${fmt(total)}</h3>
+      </div>
+      ${list.length ? `
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th>الرقم</th><th>التاريخ</th><th>العميل</th><th>صالح حتى</th>
+          <th>الإجمالي</th><th>الحالة</th><th>إجراءات</th>
+        </tr></thead>
+        <tbody>${list.map(qt => {
+          const statusLabel = {pending:'⏳ معلّق', accepted:'✅ مقبول', rejected:'❌ مرفوض', converted:'🧾 محوّل'}[qt.status] || qt.status;
+          const statusClass = {pending:'badge-orange', accepted:'badge-green', rejected:'badge-red', converted:'badge-blue'}[qt.status] || 'badge-gray';
+          return `<tr>
+            <td><strong>${esc(qt.number)}</strong></td>
+            <td>${esc(qt.date)}</td>
+            <td>${esc(qt.customerName||'-')}</td>
+            <td>${esc(qt.validUntil||'-')}</td>
+            <td>${fmt(qt.total)}</td>
+            <td><span class="badge ${statusClass}">${statusLabel}</span></td>
+            <td>
+              <button class="btn btn-secondary btn-sm" onclick="exportQuotationPDF('${qt.id}')" title="PDF">📥</button>
+              <button class="btn btn-secondary btn-sm" onclick="printQuotation('${qt.id}')" title="طباعة">🖨️</button>
+              ${qt.status !== 'converted' ? `<button class="btn btn-success btn-sm" onclick="convertQuotationToSale('${qt.id}')" title="تحويل إلى فاتورة بيع">🧾</button>` : ''}
+              <button class="btn btn-secondary btn-sm" onclick="openQuotationForm('${qt.id}')" title="تعديل">✏️</button>
+              <button class="btn btn-danger btn-sm" onclick="softDelete('quotations','${qt.id}')" title="حذف">🗑️</button>
+            </td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>` : `<div class="empty-state"><div class="icon">💼</div><p>لا توجد عروض أسعار — اضغط "+ عرض سعر جديد" للبدء</p></div>`}
+    </div>
+  `;
+}
+
+let tempQuotationItems = [];
+
+function openQuotationForm(id) {
+  const existing = id ? state.data.quotations.find(x => x.id === id) : null;
+  if (existing) {
+    tempQuotationItems = (existing.items || []).map(it => ({ ...it }));
+  } else {
+    tempQuotationItems = [];
+  }
+
+  const items = state.data.items;
+  const validUntil = existing?.validUntil || new Date(Date.now() + 14*24*60*60*1000).toISOString().slice(0,10);
+
+  openModal(existing ? 'تعديل عرض سعر' : 'عرض سعر جديد', `
+    <div class="form-row">
+      <div class="form-group"><label>التاريخ</label><input type="date" id="qDate" value="${existing?.date||today()}"></div>
+      <div class="form-group"><label>صالح حتى</label><input type="date" id="qValidUntil" value="${validUntil}"></div>
+    </div>
+    <div class="form-group">
+      <label>العميل * <small style="color:#64748b;font-weight:400;">(اكتب اسمًا جديدًا أو اختر من القائمة)</small></label>
+      <input list="customersListQ" id="qCustomer" placeholder="اكتب أو اختر..." value="${esc(existing?.customerName||'')}" autocomplete="off">
+      <datalist id="customersListQ">
+        ${state.data.customers.map(c=>`<option value="${esc(c.name)}"></option>`).join('')}
+      </datalist>
+    </div>
+    <div class="form-group"><label>الأصناف</label>
+      <div id="quotationItemsContainer"></div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="addQuotationItemRow()">+ إضافة صنف</button>
+    </div>
+    <div class="form-row-3">
+      <div class="form-group"><label>الخصم</label>
+        <input type="text" inputmode="decimal" id="qDiscount" value="${existing?.discount||0}" oninput="recalcQuotation()"></div>
+      <div class="form-group"><label>الضريبة</label>
+        <input type="text" inputmode="decimal" id="qTax" value="${existing?.tax||0}" oninput="recalcQuotation()"></div>
+      <div class="form-group"><label>الحالة</label>
+        <select id="qStatus">
+          <option value="pending" ${existing?.status==='pending'?'selected':''}>⏳ معلّق</option>
+          <option value="accepted" ${existing?.status==='accepted'?'selected':''}>✅ مقبول</option>
+          <option value="rejected" ${existing?.status==='rejected'?'selected':''}>❌ مرفوض</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group"><label>شروط وأحكام</label>
+      <textarea id="qTerms" rows="2" placeholder="مثال: صالح لمدة 14 يوم، الأسعار لا تشمل التوصيل...">${esc(existing?.terms||'')}</textarea></div>
+    <div class="form-group"><label>ملاحظات</label>
+      <textarea id="qNotes" rows="2">${esc(existing?.notes||'')}</textarea></div>
+    <div class="totals-box">
+      <div class="totals-row"><span>المجموع الفرعي:</span><strong id="qSubtotal">0</strong></div>
+      <div class="totals-row"><span>الخصم:</span><strong id="qDiscDisp">0</strong></div>
+      <div class="totals-row"><span>الضريبة:</span><strong id="qTaxDisp">0</strong></div>
+      <div class="totals-row grand"><span>الإجمالي:</span><strong id="qTotal">0</strong></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">إلغاء</button>
+      <button class="btn btn-primary" onclick="saveQuotation(${existing ? `'${existing.id}'` : 'null'})">💾 حفظ</button>
+    </div>
+  `);
+  if (tempQuotationItems.length) renderQuotationItemRows();
+  else addQuotationItemRow();
+  recalcQuotation();
+}
+
+function addQuotationItemRow() {
+  tempQuotationItems.push({ itemId:'', name:'', qty:1, price:0, total:0 });
+  renderQuotationItemRows();
+}
+
+function renderQuotationItemRows() {
+  const cont = $('#quotationItemsContainer');
+  if (!cont) return;
+  const items = state.data.items;
+  cont.innerHTML = tempQuotationItems.map((it, i) => `
+    <div class="item-row">
+      <select onchange="updateQuotationItem(${i},'itemId',this.value)">
+        <option value="">-- اختر صنف --</option>
+        ${items.map(x=>`<option value="${x.id}" ${it.itemId===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}
+      </select>
+      <input type="text" inputmode="decimal" value="${it.qty}" onchange="updateQuotationItem(${i},'qty',this.value)" placeholder="الكمية">
+      <input type="text" inputmode="decimal" value="${it.price}" onchange="updateQuotationItem(${i},'price',this.value)" placeholder="السعر">
+      <span class="row-total">${fmt(it.total)}</span>
+      <button class="row-remove" onclick="removeQuotationItem(${i})">×</button>
+    </div>
+  `).join('');
+  recalcQuotation();
+}
+
+function updateQuotationItem(i, field, val) {
+  const it = tempQuotationItems[i];
+  if (!it) return;
+  if (field === 'itemId') {
+    const item = state.data.items.find(x => x.id === val);
+    it.itemId = val; it.name = item?.name || '';
+    if (item && !it.price) it.price = Number(item.price) || 0;
+  } else if (field === 'qty') it.qty = Math.max(0, parseNum(val) || 0);
+  else if (field === 'price') it.price = Math.max(0, parseNum(val) || 0);
+  it.total = it.qty * it.price;
+  renderQuotationItemRows();
+}
+
+function removeQuotationItem(i) {
+  tempQuotationItems.splice(i,1);
+  renderQuotationItemRows();
+}
+
+function recalcQuotation() {
+  const sub = tempQuotationItems.reduce((s,i)=>s+i.total,0);
+  const disc = parseNum(document.getElementById('qDiscount')?.value);
+  const tax = parseNum(document.getElementById('qTax')?.value);
+  const total = sub - disc + tax;
+  if ($('#qSubtotal')) $('#qSubtotal').textContent = fmt(sub);
+  if ($('#qDiscDisp')) $('#qDiscDisp').textContent = fmt(disc);
+  if ($('#qTaxDisp')) $('#qTaxDisp').textContent = fmt(tax);
+  if ($('#qTotal')) $('#qTotal').textContent = fmt(total);
+}
+
+async function saveQuotation(id) {
+  const customerName = readStr('#qCustomer');
+  const date = readStr('#qDate');
+  const validUntil = readStr('#qValidUntil');
+  const disc = parseNum(document.getElementById('qDiscount')?.value);
+  const tax = parseNum(document.getElementById('qTax')?.value);
+  const status = readStr('#qStatus', 'pending');
+  const terms = readStr('#qTerms');
+  const notes = readStr('#qNotes');
+
+  if (!customerName) { alert('اكتب اسم العميل'); return; }
+  const validItems = tempQuotationItems.filter(i => i.itemId && i.qty > 0);
+  if (!validItems.length) { alert('أضف صنفاً واحداً على الأقل'); return; }
+
+  const sub = validItems.reduce((s,i)=>s+i.total,0);
+  const total = sub - disc + tax;
+
+  const data = {
+    date, validUntil, customerName,
+    items: validItems, subtotal: sub, discount: disc, tax, total,
+    status, terms, notes, updatedAt: Date.now()
+  };
+
+  if (id) {
+    await userCol('quotations').doc(id).update(data);
+  } else {
+    const number = await nextNumber('quotations', 'QT');
+    await userCol('quotations').add({
+      ...data, number, createdAt: Date.now()
+    });
+  }
+  closeModal();
+}
+
+function buildQuotationContent(qt) {
+  return `
+    <div class="print-meta">
+      <div><strong>رقم العرض:</strong> ${esc(qt.number)}</div>
+      <div><strong>التاريخ:</strong> ${esc(qt.date)}</div>
+      <div><strong>العميل:</strong> ${esc(qt.customerName)}</div>
+      <div><strong>صالح حتى:</strong> ${esc(qt.validUntil||'-')}</div>
+    </div>
+    <table>
+      <thead><tr><th>#</th><th>الصنف</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
+      <tbody>${(qt.items||[]).map((it, i)=>`<tr>
+        <td>${i+1}</td><td>${esc(it.name)}</td><td>${it.qty}</td>
+        <td>${fmt(it.price)}</td><td>${fmt(it.total)}</td></tr>`).join('')}</tbody>
+    </table>
+    <div class="print-totals">
+      <div><span>المجموع الفرعي:</span> <strong>${fmt(qt.subtotal)}</strong></div>
+      <div><span>الخصم:</span> <strong>${fmt(qt.discount)}</strong></div>
+      <div><span>الضريبة:</span> <strong>${fmt(qt.tax)}</strong></div>
+      <div class="grand"><span>الإجمالي:</span> <strong>${fmt(qt.total)}</strong></div>
+    </div>
+    ${qt.terms ? `<div class="print-notes"><strong>الشروط والأحكام:</strong><br>${esc(qt.terms)}</div>` : ''}
+    ${qt.notes ? `<div class="print-notes"><strong>ملاحظات:</strong> ${esc(qt.notes)}</div>` : ''}
+    <div style="margin-top:30px;padding:16px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;color:#555;">
+      <p style="margin:0 0 8px;"><strong>ملاحظة:</strong> هذا عرض سعر وليس فاتورة ضريبية. الأسعار قابلة للتغيير حسب الكميات المتوفرة.</p>
+      <div style="display:flex;justify-content:space-between;margin-top:30px;">
+        <div>توقيع العميل: ________________</div>
+        <div>توقيع المسؤول: ________________</div>
+      </div>
+    </div>
+  `;
+}
+
+function exportQuotationPDF(id) {
+  const qt = state.data.quotations.find(x => x.id === id);
+  if (!qt) return;
+  exportPDF('عرض سعر — ' + qt.number, buildQuotationContent(qt), 'Quotation_' + qt.number);
+}
+
+function printQuotation(id) {
+  const qt = state.data.quotations.find(x => x.id === id);
+  if (!qt) return;
+  printHtml(printHeaderHtml('عرض سعر') + buildQuotationContent(qt) + printFooterHtml());
+}
+
+function exportQuotationsPDF() {
+  const from = state.filters.quotationsFrom || '';
+  const to = state.filters.quotationsTo || '';
+  const inRange = d => (!from || d >= from) && (!to || d <= to);
+  const list = [...state.data.quotations].filter(qt => inRange(qt.date)).sort((a,b)=>b.createdAt-a.createdAt);
+  if (!list.length) { alert('لا توجد عروض للتصدير'); return; }
+  const total = list.reduce((s,x)=>s+(Number(x.total)||0),0);
+  const period = from || to ? `من ${from || 'البداية'} إلى ${to || 'اليوم'}` : 'كل الفترات';
+
+  const content = `
+    <div class="print-meta">
+      <div><strong>الفترة:</strong> ${esc(period)}</div>
+      <div><strong>عدد العروض:</strong> ${list.length}</div>
+    </div>
+    <table>
+      <thead><tr><th>#</th><th>الرقم</th><th>التاريخ</th><th>العميل</th><th>صالح حتى</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+      <tbody>${list.map((qt, i) => {
+        const statusLabel = {pending:'معلّق', accepted:'مقبول', rejected:'مرفوض', converted:'محوّل'}[qt.status] || qt.status;
+        return `<tr>
+          <td>${i+1}</td><td>${esc(qt.number)}</td><td>${esc(qt.date)}</td>
+          <td>${esc(qt.customerName)}</td><td>${esc(qt.validUntil||'-')}</td>
+          <td>${fmt(qt.total)}</td><td>${statusLabel}</td>
+        </tr>`;
+      }).join('')}</tbody>
+      <tfoot><tr style="background:#f0f0f0;font-weight:bold;">
+        <td colspan="5">الإجمالي</td><td>${fmt(total)}</td><td></td>
+      </tr></tfoot>
+    </table>
+  `;
+  exportPDF('تقرير عروض الأسعار — ' + period, content, 'quotations_report');
+}
+
+async function convertQuotationToSale(id) {
+  const qt = state.data.quotations.find(x => x.id === id);
+  if (!qt) return;
+  if (qt.status === 'converted') { alert('تم تحويل هذا العرض مسبقًا'); return; }
+
+  if (!confirm(`تحويل عرض السعر ${qt.number} إلى فاتورة بيع؟\n\nملاحظة: سيتم إنقاص الكميات من المخزون.`)) return;
+
+  const unavailable = [];
+  for (const it of qt.items || []) {
+    const item = state.data.items.find(x => x.id === it.itemId);
+    if (!item) { unavailable.push(it.name + ' (غير موجود)'); continue; }
+    if (Number(item.quantity) < Number(it.qty)) {
+      unavailable.push(`${it.name} (متوفر: ${item.quantity}، مطلوب: ${it.qty})`);
+    }
+  }
+  if (unavailable.length) {
+    alert('⚠️ لا يمكن التحويل — الكميات التالية غير كافية:\n\n' + unavailable.join('\n'));
+    return;
+  }
+
+  const saleNumber = await nextNumber('sales', 'S');
+  let customer = state.data.customers.find(c => c.name.trim() === qt.customerName);
+  let customerId = customer?.id;
+  if (!customer) {
+    const ref = await userCol('customers').add({
+      name: qt.customerName, phone: '', address: '', openingBalance: 0, createdAt: Date.now()
+    });
+    customerId = ref.id;
+  }
+
+  await userCol('sales').add({
+    number: saleNumber,
+    date: today(),
+    type: 'credit',
+    customerId, customerName: qt.customerName,
+    items: qt.items,
+    subtotal: qt.subtotal, discount: qt.discount, tax: qt.tax, total: qt.total,
+    paid: 0, remaining: qt.total,
+    notes: 'محوّلة من عرض سعر: ' + qt.number,
+    convertedFromQuotation: qt.number,
+    createdAt: Date.now()
+  });
+
+  const batch = db.batch();
+  (qt.items || []).forEach(it => {
+    if (it.itemId) {
+      batch.update(userCol('items').doc(it.itemId), {
+        quantity: firebase.firestore.FieldValue.increment(-it.qty)
+      });
+    }
+  });
+  await batch.commit();
+
+  await userCol('quotations').doc(id).update({
+    status: 'converted',
+    convertedToSale: saleNumber,
+    convertedAt: Date.now()
+  });
+
+  alert(`✅ تم إنشاء فاتورة بيع برقم ${saleNumber}\nيمكنك مراجعتها في قسم "فواتير البيع"`);
+}
+
 /* ===================== DASHBOARD ===================== */
 function renderDashboard(c) {
   const sales = state.data.sales;
@@ -412,6 +1162,7 @@ function renderDashboard(c) {
   const customers = state.data.customers;
   const items = state.data.items;
   const employees = state.data.employees;
+  const quotations = state.data.quotations;
 
   const totalSales = sales.reduce((s, x) => s + (Number(x.total) || 0), 0);
   const totalPurchases = purchases.reduce((s, x) => s + (Number(x.total) || 0), 0);
@@ -432,6 +1183,7 @@ function renderDashboard(c) {
   const topCustomers = customers.slice(0, 6);
   const debtorsCount = customers.filter(cu => customerBalance(cu.id) > 0).length;
   const creditorsCount = customers.filter(cu => customerBalance(cu.id) < 0).length;
+  const pendingQuotations = quotations.filter(q => q.status === 'pending').length;
 
   const userName = (state.user?.displayName || 'المستخدم').split(' ')[0];
 
@@ -536,6 +1288,10 @@ function renderDashboard(c) {
             <div class="qa-icon green">🧾</div>
             <div class="qa-label">فاتورة بيع</div>
           </div>
+          <div class="quick-action" onclick="openQuotationForm()">
+            <div class="qa-icon primary">💼</div>
+            <div class="qa-label">عرض سعر</div>
+          </div>
           <div class="quick-action" onclick="openPurchaseForm()">
             <div class="qa-icon blue">📥</div>
             <div class="qa-label">فاتورة شراء</div>
@@ -588,13 +1344,13 @@ function renderDashboard(c) {
             </div>
             <div class="alert-count">${creditorsCount}</div>
           </div>
-          <div class="alert-item" onclick="showSection('journal')">
-            <div class="alert-icon green">📔</div>
+          <div class="alert-item" onclick="showSection('quotations')">
+            <div class="alert-icon purple">💼</div>
             <div class="alert-body">
-              <div class="alert-title">قيود اليوم</div>
-              <div class="alert-sub">تم تسجيلها اليوم</div>
+              <div class="alert-title">عروض أسعار معلّقة</div>
+              <div class="alert-sub">بحاجة لمتابعة</div>
             </div>
-            <div class="alert-count">${todayJournal.length}</div>
+            <div class="alert-count">${pendingQuotations}</div>
           </div>
         </div>
       </div>
@@ -658,7 +1414,10 @@ function renderJournal(c) {
         <button class="btn btn-secondary btn-sm" onclick="state.filters.journalFrom='';state.filters.journalTo='';renderSection()">إعادة تعيين</button>
       </div>
       <div class="toolbar-right">
-        ${list.length ? `<button class="btn btn-secondary" onclick="exportJournalListPDF()">📥 PDF (${list.length})</button>` : ''}
+        ${list.length ? `
+          <button class="btn btn-secondary" onclick="exportJournalExcel()">📊 Excel</button>
+          <button class="btn btn-secondary" onclick="exportJournalListPDF()">📥 PDF (${list.length})</button>
+        ` : ''}
         <button class="btn btn-primary" onclick="openJournalForm()">+ قيد جديد</button>
       </div>
     </div>
@@ -972,6 +1731,7 @@ function renderSales(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
+          <button class="btn btn-secondary" onclick="exportSalesExcel()">📊 Excel</button>
           <button class="btn btn-secondary" onclick="exportSalesPDF('${from}','${to}')">📥 PDF (${list.length})</button>
           <button class="btn btn-secondary" onclick="printSalesList()">🖨️</button>
         ` : ''}
@@ -1292,6 +2052,7 @@ function renderPurchases(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
+          <button class="btn btn-secondary" onclick="exportPurchasesExcel()">📊 Excel</button>
           <button class="btn btn-secondary" onclick="exportPurchasesPDF('${from}','${to}')">📥 PDF (${list.length})</button>
           <button class="btn btn-secondary" onclick="printPurchasesList()">🖨️</button>
         ` : ''}
@@ -1599,6 +2360,8 @@ function renderCustomers(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
+          <button class="btn btn-secondary" onclick="exportCustomersExcel()">📊 Excel</button>
+          <button class="btn btn-secondary" onclick="importCustomersExcel()">📤 استيراد</button>
           <button class="btn btn-secondary" onclick="exportCustomersPDF()">📥 PDF</button>
           <button class="btn btn-secondary" onclick="printCustomersList()">🖨️</button>
         ` : ''}
@@ -1793,6 +2556,8 @@ function renderItems(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
+          <button class="btn btn-secondary" onclick="exportItemsExcel()">📊 Excel</button>
+          <button class="btn btn-secondary" onclick="importItemsExcel()">📤 استيراد</button>
           <button class="btn btn-secondary" onclick="exportItemsPDF()">📥 PDF</button>
           <button class="btn btn-secondary" onclick="printItemsList()">🖨️</button>
         ` : ''}
@@ -1932,6 +2697,8 @@ function renderEmployees(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
+          <button class="btn btn-secondary" onclick="exportEmployeesExcel()">📊 Excel</button>
+          <button class="btn btn-secondary" onclick="importEmployeesExcel()">📤 استيراد</button>
           <button class="btn btn-secondary" onclick="exportEmployeesPDF()">📥 PDF</button>
           <button class="btn btn-secondary" onclick="printEmployeesList()">🖨️</button>
         ` : ''}
@@ -2075,6 +2842,7 @@ function renderAdvances(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
+          <button class="btn btn-secondary" onclick="exportAdvancesExcel()">📊 Excel</button>
           <button class="btn btn-secondary" onclick="exportAdvancesPDF('${from}','${to}')">📥 PDF (${list.length})</button>
           <button class="btn btn-secondary" onclick="printAdvancesList()">🖨️</button>
         ` : ''}
@@ -2385,6 +3153,7 @@ function renderReceipts(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
+          <button class="btn btn-secondary" onclick="exportReceiptsExcel()">📊 Excel</button>
           <button class="btn btn-secondary" onclick="exportReceiptsPDF('${from}','${to}')">📥 PDF (${list.length})</button>
           <button class="btn btn-secondary" onclick="printReceiptsList()">🖨️</button>
         ` : ''}
@@ -2573,6 +3342,7 @@ function renderPayments(c) {
       </div>
       <div class="toolbar-right">
         ${list.length ? `
+          <button class="btn btn-secondary" onclick="exportPaymentsExcel()">📊 Excel</button>
           <button class="btn btn-secondary" onclick="exportPaymentsPDF('${from}','${to}')">📥 PDF (${list.length})</button>
           <button class="btn btn-secondary" onclick="printPaymentsList()">🖨️</button>
         ` : ''}
@@ -2864,6 +3634,7 @@ function exportFullReportPDF() {
   const receipts = state.data.receipts.filter(r => inRange(r.date));
   const payments = state.data.payments.filter(p => inRange(p.date));
   const journal = state.data.journal.filter(j => inRange(j.date));
+  const quotations = state.data.quotations.filter(q => inRange(q.date));
   const sum = (arr, k) => arr.reduce((s, x) => s + (Number(x[k]) || 0), 0);
   const period = from || to ? `من ${from || 'البداية'} إلى ${to || 'اليوم'}` : 'كل الفترات';
 
@@ -2880,6 +3651,8 @@ function exportFullReportPDF() {
           <td><strong>إجمالي المصروفات:</strong></td><td>${fmt(sum(payments,'amount'))}</td></tr>
       <tr><td><strong>القيود اليومية:</strong></td><td>${journal.length}</td>
           <td><strong>إجمالي القيود:</strong></td><td>${fmt(sum(journal,'amount'))}</td></tr>
+      <tr><td><strong>عروض الأسعار:</strong></td><td>${quotations.length}</td>
+          <td><strong>إجمالي العروض:</strong></td><td>${fmt(sum(quotations,'total'))}</td></tr>
     </table>
     <h3 style="margin:15px 0 8px;border-bottom:2px solid #333;padding-bottom:5px;font-size:14px;">تفاصيل المبيعات</h3>
     <table>
@@ -2913,6 +3686,7 @@ function printFullReport() {
   const receipts = state.data.receipts.filter(r => inRange(r.date));
   const payments = state.data.payments.filter(p => inRange(p.date));
   const journal = state.data.journal.filter(j => inRange(j.date));
+  const quotations = state.data.quotations.filter(q => inRange(q.date));
   const sum = (arr, k) => arr.reduce((s, x) => s + (Number(x[k]) || 0), 0);
   const period = from || to ? `من ${from || 'البداية'} إلى ${to || 'اليوم'}` : 'كل الفترات';
 
@@ -2930,6 +3704,8 @@ function printFullReport() {
           <td><strong>إجمالي المصروفات:</strong></td><td>${fmt(sum(payments,'amount'))}</td></tr>
       <tr><td><strong>القيود اليومية:</strong></td><td>${journal.length}</td>
           <td><strong>إجمالي القيود:</strong></td><td>${fmt(sum(journal,'amount'))}</td></tr>
+      <tr><td><strong>عروض الأسعار:</strong></td><td>${quotations.length}</td>
+          <td><strong>إجمالي العروض:</strong></td><td>${fmt(sum(quotations,'total'))}</td></tr>
     </table>
     <h3 style="margin:20px 0 10px;border-bottom:2px solid #333;padding-bottom:6px;">تفاصيل المبيعات</h3>
     <table>
@@ -3036,7 +3812,6 @@ function renderSettings(c) {
   `;
 }
 
-/* ============ حقول الهواتف الديناميكية ============ */
 function addPhoneField() {
   const container = document.getElementById('phonesContainer');
   const row = document.createElement('div');
