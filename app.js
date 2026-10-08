@@ -422,7 +422,7 @@ function exportToExcel(data, headers, filename, sheetName = 'Sheet1') {
     });
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = headers.map(h => ({ wch: h.width || 18 }));
-    ws['!dir'] = 'rtl';
+    // تم إزالة ws['!dir'] = 'rtl' لأنها كانت تسبب انعكاس الأحرف العربية;
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
     XLSX.writeFile(wb, filename + '_' + today() + '.xlsx');
@@ -467,9 +467,9 @@ function downloadTemplate(headers, filename, sampleRow = null) {
   if (typeof XLSX === 'undefined') { alert('⚠️ مكتبة Excel لم تُحمّل'); return; }
   const aoa = [headers];
   if (sampleRow) aoa.push(sampleRow);
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = headers.map(() => ({ wch: 20 }));
-  ws['!dir'] = 'rtl';
+  // تم إزالة ws['!dir'] = 'rtl'
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Template');
   XLSX.writeFile(wb, filename + '.xlsx');
