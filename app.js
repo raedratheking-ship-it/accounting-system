@@ -1,9 +1,9 @@
 /* =====================================================================
    النظام المحاسبي المتكامل - app.js
-   VERSION 14 - إصلاح Excel العربي (CSV + XLSX)
+   VERSION 15 - إصلاح PDF النهائي
    ===================================================================== */
 
-console.log('✅ app.js VERSION 14 loaded — ' + new Date().toISOString());
+console.log('✅ app.js VERSION 15 loaded — ' + new Date().toISOString());
 
 /* ====== معالج تسجيل الدخول ====== */
 (function setupLogin() {
@@ -352,12 +352,15 @@ function printFooterHtml() {
   return `<div class="print-footer">${esc(s.footer)}</div>`;
 }
 
-/* ===================== PDF Export ===================== */
+/* ============================================================
+   📥 PDF Export - النسخة المُصلَحة النهائية
+   ============================================================ */
 function exportPDF(docTitle, contentHTML, filename) {
   if (typeof html2pdf === 'undefined') {
     alert('⚠️ مكتبة PDF لم تُحمّل');
     return;
   }
+
   const s = state.settings;
   const primary = s.themePrimary ? rgbToHex(s.themePrimary) : '#1a3b5c';
   const secondary = s.themeSecondary ? rgbToHex(s.themeSecondary) : '#4a9eff';
@@ -365,9 +368,14 @@ function exportPDF(docTitle, contentHTML, filename) {
   const secondarySoft = s.themeSecondary ? rgbToHex(adjustColor(s.themeSecondary, 88)) : '#e0f2fe';
 
   const wrapper = document.createElement('div');
-  wrapper.style.cssText = 'direction:rtl;font-family:Cairo,sans-serif;padding:15px;background:#fff;color:#000;width:100%;';
+  wrapper.style.cssText = 'direction:rtl;font-family:Cairo,sans-serif;padding:15px;background:#fff;color:#000;width:100%;letter-spacing:0;word-spacing:0;';
+
   wrapper.innerHTML = `
     <style>
+      * {
+        letter-spacing: 0 !important;
+        word-spacing: 0 !important;
+      }
       .print-header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding-bottom:12px;border-bottom:3px double ${primary};margin-bottom:14px;}
       .print-logo{height:75px;width:75px;object-fit:contain;}
       .print-logo-placeholder{width:75px;height:75px;background:${primary};color:#fff;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:34px;font-weight:bold;}
@@ -391,31 +399,40 @@ function exportPDF(docTitle, contentHTML, filename) {
     ${contentHTML}
     ${printFooterHtml()}
   `;
+
   const opt = {
     margin: [8, 8, 8, 8],
     filename: (filename || docTitle.replace(/[^\u0600-\u06FFa-zA-Z0-9]/g, '_')) + '.pdf',
     image: { type: 'jpeg', quality: 0.95 },
-    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', scrollY: 0 },
+    html2canvas: {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      scrollY: 0,
+      letterRendering: false,
+      logging: false
+    },
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
     pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
   };
+
   html2pdf().set(opt).from(wrapper).save()
     .then(() => console.log('✅ تم تصدير PDF:', docTitle))
-    .catch(err => { console.error('❌ خطأ PDF:', err); alert('فشل PDF: ' + err.message); });
+    .catch(err => {
+      console.error('❌ خطأ PDF:', err);
+      alert('فشل PDF: ' + err.message);
+    });
 }
 
 /* ============================================================
-   📊 EXCEL - الحل النهائي للمشكلة العربية
+   📊 Excel - تصدير واستيراد
    ============================================================ */
-
-// ============ التصدير إلى Excel (xlsx) ============
 function exportToExcel(data, headers, filename, sheetName = 'Sheet1') {
   if (typeof XLSX === 'undefined') {
     alert('⚠️ مكتبة Excel لم تُحمّل. تحقق من الإنترنت وأعد تحميل الصفحة.');
     return;
   }
   try {
-    // بناء البيانات كـ array of arrays
     const aoa = [headers.map(h => String(h.label || ''))];
     data.forEach(row => {
       aoa.push(headers.map(h => {
@@ -423,18 +440,10 @@ function exportToExcel(data, headers, filename, sheetName = 'Sheet1') {
         return val === undefined || val === null ? '' : String(val);
       }));
     });
-
-    // إنشاء الورقة بدون أي إعدادات RTL
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-    // ضبط عرض الأعمدة فقط
     ws['!cols'] = headers.map(h => ({ wch: h.width || 18 }));
-
-    // إنشاء الـ workbook
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
-
-    // كتابة الملف
     XLSX.writeFile(wb, filename + '_' + today() + '.xlsx');
     console.log('✅ تم تصدير Excel:', filename);
   } catch (err) {
@@ -443,10 +452,8 @@ function exportToExcel(data, headers, filename, sheetName = 'Sheet1') {
   }
 }
 
-// ============ التصدير إلى CSV (حل مضمون للعربية) ============
 function exportToCSV(data, headers, filename) {
   try {
-    // بناء الصفوف
     const rows = [headers.map(h => String(h.label || ''))];
     data.forEach(row => {
       rows.push(headers.map(h => {
@@ -455,7 +462,6 @@ function exportToCSV(data, headers, filename) {
       }));
     });
 
-    // تحويل إلى CSV مع علامات اقتباس
     const csvContent = rows.map(row =>
       row.map(cell => {
         const str = String(cell).replace(/"/g, '""');
@@ -463,11 +469,9 @@ function exportToCSV(data, headers, filename) {
       }).join(',')
     ).join('\r\n');
 
-    // ✅ الأهم: إضافة BOM (Byte Order Mark) لتمكين Excel من قراءة العربية بشكل صحيح
     const BOM = '\uFEFF';
     const csvWithBOM = BOM + csvContent;
 
-    // إنشاء الملف وتحميله
     const blob = new Blob([csvWithBOM], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
@@ -484,9 +488,7 @@ function exportToCSV(data, headers, filename) {
   }
 }
 
-// ============ دالة عامة: تصدير Excel أو CSV ============
 function exportToFile(data, headers, filename, sheetName) {
-  // نعرض نافذة يختار منها المستخدم
   const totalRows = data.length;
   openModal('تصدير إلى ملف', `
     <div style="padding:10px;">
@@ -508,7 +510,7 @@ function exportToFile(data, headers, filename, sheetName) {
           <span style="font-size:24px;margin-left:12px;">📊</span>
           <div style="text-align:right;flex:1;">
             <div style="font-weight:800;font-size:14px;">Excel (xlsx)</div>
-            <div style="font-size:11px;opacity:0.9;font-weight:600;">ملف Excel أصلي — قد يعرض العربية معكوسة في بعض الإعدادات</div>
+            <div style="font-size:11px;opacity:0.9;font-weight:600;">ملف Excel أصلي</div>
           </div>
         </button>
       </div>
@@ -527,7 +529,6 @@ function exportToFile(data, headers, filename, sheetName) {
   };
 }
 
-// ============ الاستيراد من ملف (يدعم CSV و xlsx) ============
 function importFromExcel(callback) {
   if (typeof XLSX === 'undefined') {
     alert('⚠️ مكتبة Excel لم تُحمّل');
@@ -558,7 +559,6 @@ function importFromExcel(callback) {
   input.click();
 }
 
-// ============ تحميل قالب Excel ============
 function downloadTemplate(headers, filename, sampleRow = null) {
   if (typeof XLSX === 'undefined') { alert('⚠️ مكتبة Excel لم تُحمّل'); return; }
   const aoa = [headers];
@@ -1942,7 +1942,7 @@ function openSaleForm() {
       <div id="saleItemsContainer"></div>
       ${items.length 
         ? `<button type="button" class="btn btn-secondary btn-sm" onclick="addSaleItemRow()">+ إضافة صنف</button>` 
-        : `<div style="padding:12px;background:var(--orange-soft);border-radius:8px;color:var(--orange);font-size:13px;font-weight:700;">⚠️ لا توجد أصناف في المخزون. أضف أصنافًا أولًا من فاتورة شراء.</div>`}
+        : `<div style="padding:12px;background:var(--orange-soft);border-radius:8px;color:var(--orange);font-size:13px;font-weight:700;">⚠️ لا توجد أصناف في المخزون.</div>`}
     </div>
     <div class="form-row-3">
       <div class="form-group"><label>الخصم</label>
@@ -4025,7 +4025,7 @@ function printHtml(contentHtml) {
     <title>طباعة</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
-      * { box-sizing: border-box; }
+      * { box-sizing: border-box; letter-spacing: 0; }
       body { font-family: 'Cairo', sans-serif; padding: 25px; color: #000; direction: rtl; margin: 0; background: #fff; }
       .print-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 16px; border-bottom: 3px double ${primary}; margin-bottom: 20px; }
       .print-logo { height: 90px; width: 90px; object-fit: contain; }
